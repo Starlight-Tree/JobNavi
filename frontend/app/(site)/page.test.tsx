@@ -135,12 +135,16 @@ describe('一覧（トップ）の件数と条件バー', () => {
     expect(second.container.querySelector('.result-count')).toHaveTextContent(/^検索結果 26件$/);
   });
 
-  it('しぼり込みと件数は、同じ条件バー（.search-bar。1024px 以上で画面の上に留まる）の中にある', async () => {
+  it('件数は見出しの横（DocuNavi の資料一覧と同じ位置）。しぼり込みは、画面の上に留まる条件バー（.search-bar）の中', async () => {
     const { container } = render(await Home(params()));
+    // 見出しの縦位置を DocuNavi にそろえる印（globals.css の .page.recruit-list）
+    expect(container.querySelector('main')).toHaveClass('page', 'recruit-list');
+    const head = container.querySelector('.title-row')!;
+    expect(head.querySelector('h1')).not.toBeNull();
+    expect(head.querySelector('.result-count')).not.toBeNull();
     const bar = container.querySelector('.search-bar')!;
     expect(bar.querySelector('[data-testid="filter-form"]')).not.toBeNull();
-    expect(bar.querySelector('.result-count')).not.toBeNull();
-    // 見出しと診断の案内は、固定しない（バーの外）
-    expect(bar.querySelector('h1, .diagnosis-hint')).toBeNull();
+    // 見出し・件数・診断の案内は、固定しない（バーの外）
+    expect(bar.querySelector('h1, .result-count, .diagnosis-hint')).toBeNull();
   });
 });

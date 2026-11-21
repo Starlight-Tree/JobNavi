@@ -124,18 +124,18 @@ h1, h2 { line-height: 1.4; }
 .page { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; }
 /* 下に固定のページ送り（.pager）がある画面は、一覧の最後でバーが画面の下端に着くよう、下の余白を付けない（バー自身に余白がある） */
 .page:has(.pager) { padding-bottom: 0; }
-.title-row { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; margin-bottom: 24px; }
-.title-row h1 { margin: 0; font-size: 16.8px; flex-grow: 1; }
-.result-count { margin: 0; font-size: 13.6px; color: var(--muted); }
-/* 条件バー（しぼり込み + 件数）。DocuNavi は画面が固定で一覧の中だけがスクロールするが、JobNavi はページ全体がスクロールするので、条件バーだけを sticky にする。
-   1024px 以上だけ（それより狭いと、チップが縦に並んで画面を覆う）。重ね順は、チップの一覧（.facet-panel の 20）をバーの中に収め、ページ送り（10）・サイドパネル（25）・詳細パネル（--peek-z）との前後は、それぞれの行のコメントのとおり。
-   件数は、幅があるときはチップの右端（条件を変えたとき、同じ位置で件数が変わる）。狭い幅では、チップの上 */
-.search-bar { display: flex; flex-direction: column-reverse; align-items: stretch; gap: 4px; margin-bottom: 20px; }
+/* 求人の一覧は、見出しの位置を DocuNavi の資料一覧（画面の上から 20px）にそろえる。ほかの画面（詳細・診断・園）は 32px のまま */
+.page.recruit-list { padding-top: 20px; }
+.title-row { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-bottom: 24px; }
+.title-row h1 { margin: 0; font-size: 16.8px; }
+/* 件数は見出しの横に、控えめに（DocuNavi の .docs-head .docs-summary と同じ。太字にしない） */
+.result-count { margin: 0; font-size: 14.4px; color: var(--muted); }
+/* 条件バー（しぼり込み）。DocuNavi は画面が固定で一覧の中だけがスクロールするが、JobNavi はページ全体がスクロールするので、条件バーだけを sticky にする。
+   1024px 以上だけ（それより狭いと、チップが縦に並んで画面を覆う）。重ね順は、チップの一覧（.facet-panel の 20）をバーの中に収め、ページ送り（10）・サイドパネル（25）・詳細パネル（--peek-z）との前後は、それぞれの行のコメントのとおり */
+.search-bar { margin-bottom: 20px; }
 .search-bar .filter-bar { margin-bottom: 0; }
 @media (min-width: 1024px) {
-  .search-bar { position: sticky; top: 0; z-index: 20; flex-direction: row; align-items: flex-start; gap: 8px 16px; margin-bottom: 12px; padding: 8px 0; background: var(--bg); box-shadow: 0 1px 0 var(--border-soft); }
-  .search-bar .filter-bar { flex: 1 1 0; min-width: 0; }
-  .search-bar .result-count { flex: none; line-height: 2.4rem; white-space: nowrap; }
+  .search-bar { position: sticky; top: 0; z-index: 20; margin-bottom: 12px; padding: 8px 0; background: var(--bg); box-shadow: 0 1px 0 var(--border-soft); }
   /* 「更新しています…」は、バーの下の余白にはみ出すので、下を通るカードと重ならないよう背景を塗る */
   .search-bar .filter-status { padding: 0 4px; background: var(--bg); }
   /* キーボードで動かしたとき、カードがバーの下に隠れないように */

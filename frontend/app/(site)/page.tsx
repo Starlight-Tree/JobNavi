@@ -55,22 +55,23 @@ export default async function Home({ searchParams }: Props) {
   const query = toQuery(selection);
 
   return (
-    <main className="page">
+    <main className="page recruit-list">
+      {/* 件数は見出しの横（DocuNavi の資料一覧と同じ位置・同じ書き方。「全N件」「検索結果 N件」） */}
       <div className="title-row">
         <h1>宇宙の植物園・ガーデンの求人</h1>
+        <p className="result-count" aria-live="polite">
+          {hasConditions(selection) ? '検索結果 ' : '全'}
+          {result.total}件
+        </p>
       </div>
 
       <p className="diagnosis-hint">
         どれを選べばいいか迷ったら、<Link href="/diagnosis">3 つの質問で診断</Link>してみてください。
       </p>
 
-      {/* 条件バー: しぼり込みと件数。1024px 以上では、スクロールしても画面の上に留まる（globals.css の .search-bar）。件数の書き方は DocuNavi の資料一覧と同じ（「全N件」「検索結果 N件」） */}
+      {/* しぼり込み。1024px 以上では、スクロールしても画面の上に留まる（globals.css の .search-bar） */}
       <div className="search-bar">
         <FilterForm master={master} facets={facets} selection={selection} />
-        <p className="result-count" aria-live="polite">
-          {hasConditions(selection) ? '検索結果 ' : '全'}
-          {result.total}件
-        </p>
       </div>
 
       {/* ログインした求職者で、履歴があるときだけ（無ければ、何も出ない）。一覧の上の控えめな帯 */}
