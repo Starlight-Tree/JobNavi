@@ -144,13 +144,14 @@ h1, h2 { line-height: 1.4; }
 
 /* しぼり込み（上の横並びのチップ。DocuNavi の資料一覧と同じ形）。チップを押すと、真下に選択肢の一覧が開く（複数選べる）。開閉はブラウザー標準の <details> */
 .filter-bar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 20px; }
-/* キーワードの入力欄。チップと同じ高さ・枠・角丸。幅は 12rem（1280px で、チップ 4 つと同じ 1 行に収まる大きさ）。狭い幅では 1 列いっぱい */
-.filter-search { flex: 0 1 12rem; width: 12rem; min-width: 0; min-height: 2.4rem; box-sizing: border-box; padding: 0 0.7rem; border: 1px solid var(--input-border); border-radius: 0.5rem; background: var(--input-bg); color: var(--text); font: inherit; font-size: 14.4px; }
+/* キーワードの入力欄。チップと同じ高さ・枠・角丸。チップは中身の幅（下の .facet-summary）にして、入力欄は、行の残りを使って広がる（DocuNavi の資料一覧と同じ）。足りなければ、チップが次の行へ折り返す。狭い幅では 1 列いっぱい */
+.filter-search { flex: 1 1 12rem; width: auto; min-width: 9rem; min-height: 2.4rem; box-sizing: border-box; padding: 0 0.7rem; border: 1px solid var(--input-border); border-radius: 0.5rem; background: var(--input-bg); color: var(--text); font: inherit; font-size: 14.4px; }
 .filter-search::placeholder { color: var(--faint); }
 .filter-search:hover { background: var(--surface-muted); }
 .filter-search:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
-.facet { position: relative; min-width: 0; max-width: 100%; }
-.facet-summary { display: flex; width: 11.5rem; max-width: 100%; min-height: 2.4rem; box-sizing: border-box; align-items: center; gap: 0.4rem; padding: 0 0.6rem 0 0.7rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface); color: var(--text); font-size: 14.4px; white-space: nowrap; list-style: none; cursor: pointer; }
+/* チップは中身の幅。ただし 11.5rem まで（選んだ値が長くても、1280px で 1 行に収まる大きさ。長い値は「…」で省略し、title で全文を出す）。上限は、<summary> ではなく外側の .facet に置く（% の上限は、中身の幅の計算では効かず、外側だけが広がって隙間ができる） */
+.facet { position: relative; min-width: 7rem; max-width: min(11.5rem, 100%); }
+.facet-summary { display: flex; width: auto; max-width: 100%; min-height: 2.4rem; box-sizing: border-box; align-items: center; gap: 0.4rem; padding: 0 0.6rem 0 0.7rem; border: 1px solid var(--border); border-radius: 0.5rem; background: var(--surface); color: var(--text); font-size: 14.4px; white-space: nowrap; list-style: none; cursor: pointer; }
 .facet-summary::-webkit-details-marker { display: none; }
 .facet-summary:hover, .facet[open] > .facet-summary { background: var(--surface-muted); }
 .facet-label { color: var(--muted); font-size: 12.8px; }
@@ -159,8 +160,9 @@ h1, h2 { line-height: 1.4; }
 .facet-caret { margin-left: auto; color: var(--muted); font-size: 12px; }
 .facet[data-active='true'] > .facet-summary { border-color: var(--primary); background: var(--tag-bg); }
 .facet[data-active='true'] .facet-value { font-weight: 600; }
-.facet-panel { position: absolute; z-index: 20; top: calc(100% + 0.3rem); left: 0; width: 18rem; max-width: calc(100vw - 32px); max-height: 22rem; padding: 0.4rem; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--surface); box-shadow: 0 8px 24px var(--shadow); }
-.facet-panel-wide { width: 22rem; }
+.facet-panel { position: absolute; z-index: 20; top: calc(100% + 0.3rem); left: 0; width: max-content; min-width: max(100%, 11rem); max-width: min(18rem, calc(100vw - 32px)); max-height: 22rem; padding: 0.4rem; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--surface); box-shadow: 0 8px 24px var(--shadow); }
+/* 職種は、区分を開くたびに幅が変わらないよう、固定の幅（ほかは、選択肢の長さに合わせる。チップより狭くならない） */
+.facet-panel-wide { width: 18rem; min-width: 0; }
 /* 左端そろえだと画面の右へはみ出すとき（開いたときに FilterForm が data-align を付ける）は、チップの右端にそろえる */
 .facet[data-align='end'] > .facet-panel { right: 0; left: auto; }
 .facet-panel fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
@@ -186,8 +188,9 @@ h1, h2 { line-height: 1.4; }
 @media (max-width: 640px) {
   /* 狭い幅では、チップを 1 列に並べ（長いラベルと値が省略されないように）、一覧は、押したチップの真下に、左右いっぱいに開く */
   .facet, .filter-search { flex: 1 1 100%; }
+  .facet { max-width: none; }
   .facet-summary { width: 100%; }
-  .facet-panel, .facet-panel-wide { right: 0; left: 0; width: auto; max-width: none; }
+  .facet-panel, .facet-panel-wide { right: 0; left: 0; width: auto; min-width: 0; max-width: none; }
 }
 
 .primary-button { display: block; width: 100%; min-height: 44px; margin-top: 20px; border: 0; border-radius: 6px; background: var(--primary); color: var(--on-primary); font: inherit; font-size: 14.4px; font-weight: 700; cursor: pointer; }
