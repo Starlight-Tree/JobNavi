@@ -101,13 +101,14 @@ describe('FilterForm（上の横並びのチップ）', () => {
     expect(chip('エリア')).toHaveTextContent('すべて');
   });
 
-  it('職種は区分ごとに折りたたむ。選んだ職種がある区分だけ最初から開く', () => {
+  it('職種は、区分の見出しの下に、全部のチェックボックスを並べる（折りたたまない）', () => {
     render(<FilterForm master={master} facets={facets} selection={parseSelection({ occupation: '20' })} />);
-    const groups = document.querySelectorAll('.facet-panel details');
-    expect(groups).toHaveLength(2);
-    expect(groups[0]).not.toHaveAttribute('open');
-    expect(groups[1]).toHaveAttribute('open');
-    expect(screen.getByText('1 件選択中')).toBeInTheDocument();
+    expect(document.querySelectorAll('.facet-panel details')).toHaveLength(0);
+    const groups = [...document.querySelectorAll('.occupation-group')];
+    expect(groups.map((g) => g.querySelector('.group-title')?.textContent)).toEqual(['栽培', '解説・案内']);
+    expect(groups.map((g) => g.querySelectorAll('input[type="checkbox"]').length)).toEqual([2, 1]);
+    expect(screen.getByRole('checkbox', { name: '案内所の係', hidden: true })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: '無重力蔓の育成士', hidden: true })).not.toBeChecked();
   });
 
   it('JavaScript が無くても送れるよう、GET のフォームで name=種類・value=番号にしている', () => {

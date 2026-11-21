@@ -28,7 +28,7 @@ function keyOf(sel: Selection): string {
  * 開閉は、ブラウザー標準の <details> に任せる（JavaScript が無くても開き、チェックを入れて送れる）。
  * 外を押す・Esc・別のチップを開く、で閉じるのは、FilterForm の側が受ける。
  */
-function Facet({ label, names, wide, children }: { label: string; names: string[]; wide?: boolean; children: ReactNode }) {
+function Facet({ label, names, children }: { label: string; names: string[]; children: ReactNode }) {
   const active = names.length > 0;
   return (
     <details className="facet" data-active={active}>
@@ -41,35 +41,7 @@ function Facet({ label, names, wide, children }: { label: string; names: string[
           ▾
         </span>
       </summary>
-      <div className={`facet-panel${wide ? ' facet-panel-wide' : ''}`}>{children}</div>
-    </details>
-  );
-}
-
-// 職種の区分ごとの折りたたみ。選んだ職種がある区分は、最初から開いておく。
-// 選びが 0 から増えたとき（戻る操作など）は開く。ユーザーが閉じた区分は、選びが増えない限り閉じたままにする。
-function OccupationGroup({
-  group,
-  picked,
-  renderOption,
-}: {
-  group: Master['occupations'][number];
-  picked: number;
-  renderOption: (item: Code) => ReactNode;
-}) {
-  const [open, setOpen] = useState(picked > 0);
-  const [prevPicked, setPrevPicked] = useState(picked);
-  if (picked !== prevPicked) {
-    setPrevPicked(picked);
-    if (prevPicked === 0 && picked > 0) setOpen(true);
-  }
-  return (
-    <details open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary>
-        {group.category}
-        {picked > 0 ? <span className="picked">{picked} 件選択中</span> : null}
-      </summary>
-      {group.items.map((item) => renderOption(item))}
+      <div className="facet-panel">{children}</div>
     </details>
   );
 }
@@ -191,6 +163,7 @@ export function FilterForm({ master, facets, selection }: Props) {
     return chosen[kind].flatMap((code) => all.find((c) => c.code === code)?.name ?? []);
   };
 
+  const occupationCounts = counts(facets, 'occupation');
   const simple: { kind: Kind; title: string; items: Code[] }[] = [
     { kind: 'employment', title: '雇用形態', items: master.employments },
     { kind: 'area', title: 'エリア', items: master.areas },
@@ -243,16 +216,17 @@ export function FilterForm({ master, facets, selection }: Props) {
         );
       })}
 
-      <Facet label="職種" names={nameOf('occupation')} wide>
+      {/* 職種は、区分の見出しの下に、全部のチェックボックスを並べる（折りたたまない。一覧の高さを超えたら、中でスクロール）。幅は、いちばん長い職種名に合う */}
+      <Facet label="職種" names={nameOf('occupation')}>
         <fieldset>
           <legend className="sr-only">職種</legend>
           {master.occupations.map((group) => (
-            <OccupationGroup
-              key={group.category}
-              group={group}
-              picked={group.items.filter((i) => chosen.occupation.includes(i.code)).length}
-              renderOption={(item) => option('occupation', item, counts(facets, 'occupation'))}
-            />
+            <div key={group.category} className="occupation-group" role="group" aria-label={group.category}>
+              <p className="group-title" aria-hidden="true">
+                {group.category}
+              </p>
+              {group.items.map((item) => option('occupation', item, occupationCounts))}
+            </div>
           ))}
         </fieldset>
       </Facet>

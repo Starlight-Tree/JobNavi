@@ -161,8 +161,9 @@ h1, h2 { line-height: 1.4; }
 .facet[data-active='true'] > .facet-summary { border-color: var(--primary); background: var(--tag-bg); }
 .facet[data-active='true'] .facet-value { font-weight: 600; }
 .facet-panel { position: absolute; z-index: 20; top: calc(100% + 0.3rem); left: 0; width: max-content; min-width: max(100%, 11rem); max-width: min(18rem, calc(100vw - 32px)); max-height: 22rem; padding: 0.4rem; overflow-y: auto; border: 1px solid var(--border); border-radius: 0.75rem; background: var(--surface); box-shadow: 0 8px 24px var(--shadow); }
-/* 職種は、区分を開くたびに幅が変わらないよう、固定の幅（ほかは、選択肢の長さに合わせる。チップより狭くならない） */
-.facet-panel-wide { width: 18rem; min-width: 0; }
+/* 職種の区分の見出し（折りたたまない。見出しの下に、チェックボックスを並べる） */
+.group-title { margin: 0; padding: 10px 0.5rem 2px; font-size: 12px; font-weight: 700; color: var(--muted); }
+.occupation-group + .occupation-group { margin-top: 4px; border-top: 1px solid var(--border-soft); }
 /* 左端そろえだと画面の右へはみ出すとき（開いたときに FilterForm が data-align を付ける）は、チップの右端にそろえる */
 .facet[data-align='end'] > .facet-panel { right: 0; left: auto; }
 .facet-panel fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
@@ -173,13 +174,6 @@ h1, h2 { line-height: 1.4; }
 .option label { flex-grow: 1; cursor: pointer; }
 .option .count { font-size: 12px; color: var(--muted); min-width: 2ch; text-align: right; }
 .option-empty label, .option-empty .count { color: var(--faint); }
-.facet-panel details { border-top: 1px solid var(--border-soft); padding: 2px 0; }
-.facet-panel details:first-of-type { border-top: 0; }
-.facet-panel summary { cursor: pointer; font-size: 14px; padding: 8px 0.5rem; display: flex; gap: 8px; align-items: center; }
-.facet-panel summary::before { content: '▸'; content: '▸' / ''; flex: none; width: 1em; color: var(--muted); font-size: 12px; }
-.facet-panel details[open] > summary::before { content: '▾'; content: '▾' / ''; }
-.facet-panel summary .picked { font-size: 12px; color: var(--primary); font-weight: 700; margin-left: auto; }
-.facet-panel details[open] > summary { font-weight: 700; }
 /* 送信ボタンは、JavaScript が無いときだけ出す（動いているあいだは、チェックを入れた時点で絞り込む） */
 .filter-submit { min-height: 2.4rem; padding: 0 16px; border: 0; border-radius: 0.5rem; background: var(--primary); color: var(--on-primary); font: inherit; font-size: 14.4px; font-weight: 700; cursor: pointer; }
 .filter-submit:hover { background: var(--primary-dark); }
@@ -190,7 +184,7 @@ h1, h2 { line-height: 1.4; }
   .facet, .filter-search { flex: 1 1 100%; }
   .facet { max-width: none; }
   .facet-summary { width: 100%; }
-  .facet-panel, .facet-panel-wide { right: 0; left: 0; width: auto; min-width: 0; max-width: none; }
+  .facet-panel { right: 0; left: 0; width: auto; min-width: 0; max-width: none; }
 }
 
 .primary-button { display: block; width: 100%; min-height: 44px; margin-top: 20px; border: 0; border-radius: 6px; background: var(--primary); color: var(--on-primary); font: inherit; font-size: 14.4px; font-weight: 700; cursor: pointer; }
