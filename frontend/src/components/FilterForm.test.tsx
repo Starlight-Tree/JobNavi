@@ -232,7 +232,7 @@ describe('FilterForm（上の横並びのチップ）', () => {
         render(<FilterForm master={master} facets={facets} selection={parseSelection({ area: '3', page: '2' })} />);
         fireEvent.change(box(), { target: { value: '温室　夜勤 ' } });
         expect(replace).not.toHaveBeenCalled();
-        vi.advanceTimersByTime(349);
+        vi.advanceTimersByTime(199);
         expect(replace).not.toHaveBeenCalled();
         vi.advanceTimersByTime(1);
         expect(replace).toHaveBeenCalledTimes(1);
@@ -248,9 +248,9 @@ describe('FilterForm（上の横並びのチップ）', () => {
       try {
         render(<FilterForm master={master} facets={facets} selection={parseSelection({})} />);
         fireEvent.change(box(), { target: { value: '温' } });
-        vi.advanceTimersByTime(300);
+        vi.advanceTimersByTime(150);
         fireEvent.change(box(), { target: { value: '温室' } });
-        vi.advanceTimersByTime(300);
+        vi.advanceTimersByTime(150);
         expect(replace).not.toHaveBeenCalled();
         vi.advanceTimersByTime(50);
         expect(replace).toHaveBeenCalledTimes(1);
@@ -260,7 +260,7 @@ describe('FilterForm（上の横並びのチップ）', () => {
       }
     });
 
-    it('日本語の変換中は絞らず、確定したときに絞る', () => {
+    it('日本語の変換中は絞らず、確定したら、待たずにすぐ絞る（1 回だけ）', () => {
       vi.useFakeTimers();
       try {
         render(<FilterForm master={master} facets={facets} selection={parseSelection({})} />);
@@ -269,11 +269,45 @@ describe('FilterForm（上の横並びのチップ）', () => {
         vi.advanceTimersByTime(1000);
         expect(replace).not.toHaveBeenCalled();
         fireEvent.compositionEnd(box(), { target: { value: '温室' } });
-        vi.advanceTimersByTime(350);
+        expect(replace).toHaveBeenCalledTimes(1);
         expect(replace).toHaveBeenCalledWith('/?q=%E6%B8%A9%E5%AE%A4', { scroll: false });
+        // ブラウザーによっては、確定のあとに input が来る。同じ検索を、もう一度送らない
+        fireEvent.change(box(), { target: { value: '温室' } });
+        vi.advanceTimersByTime(1000);
+        expect(replace).toHaveBeenCalledTimes(1);
       } finally {
         vi.useRealTimers();
       }
+    });
+
+    it('変換の前に予約した検索は、変換を始めたら取り消す。変換をやめて元に戻したら、何も送らない', () => {
+      vi.useFakeTimers();
+      try {
+        render(<FilterForm master={master} facets={facets} selection={parseSelection({})} />);
+        fireEvent.change(box(), { target: { value: 'ab' } });
+        vi.advanceTimersByTime(100);
+        fireEvent.compositionStart(box());
+        vi.advanceTimersByTime(1000);
+        expect(replace).not.toHaveBeenCalled();
+        fireEvent.compositionEnd(box(), { target: { value: '' } });
+        vi.advanceTimersByTime(1000);
+        expect(replace).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('入力欄を触っている間は、戻ってきた古い URL で、続けて打った文字を消さない。離れたあとの URL の変更には合わせる', () => {
+      const sel = (q: string) => parseSelection(q ? { q } : {});
+      const { rerender } = render(<FilterForm master={master} facets={facets} selection={sel('')} />);
+      box().focus();
+      fireEvent.change(box(), { target: { value: '温' } });
+      fireEvent.change(box(), { target: { value: '温室' } });
+      rerender(<FilterForm master={master} facets={facets} selection={sel('温')} />); // 「温」の検索の戻り
+      expect(box()).toHaveValue('温室');
+      box().blur();
+      rerender(<FilterForm master={master} facets={facets} selection={sel('')} />); // チップの ✕ など、外からの変更
+      expect(box()).toHaveValue('');
     });
 
     it('Enter（送信）は、待たずにすぐ絞る（push）。待っていた replace は出さない', () => {

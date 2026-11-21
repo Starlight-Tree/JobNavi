@@ -17,6 +17,9 @@ const FACET_KEY: Record<Kind, keyof Omit<Facets, 'total'>> = {
 // チップの名前。短い名詞にそろえる（「乗り場」は、駅・停留所をまとめた、この世界の言い方）
 const TITLE: Record<Kind, string> = { occupation: '職種', area: 'エリア', station: '乗り場', employment: '雇用形態' };
 
+// 打つのをやめてから絞り込むまでの待ち。Algolia の案内は 200ms（300ms を超えると、待たされると感じ始める）。日本語の変換の確定は、待たずにすぐ絞る
+const TYPING_DELAY_MS = 200;
+
 function counts(facets: Facets, kind: Kind): Map<number, number> {
   return new Map(facets[FACET_KEY[kind]].map((f) => [f.code, f.count]));
 }
@@ -60,16 +63,26 @@ export function FilterForm({ master, facets, selection }: Props) {
   // URL が別の経路（チップの ✕、クリア、戻る）で変わったときは、サーバーの選択に合わせ直す。
   const [chosen, setChosen] = useState(selection);
   const [seen, setSeen] = useState(keyOf(selection));
+  // 入力欄を触っている間は、戻ってきた URL（自分が少し前に送った、古いキーワード）で、手元の文字を上書きしない。
+  // 上書きすると、続けて打った文字が一瞬消える（実測: 「温」→「温室」と打つと、「温」へ戻って、また「温室」になる）。
+  // URL を外から変えるもの（チップの ✕・クリア・戻る）は、入力欄から離れているときの操作なので、そのときだけ合わせ直す
+  const [typing, setTyping] = useState(false);
   // キーワードの入力欄は、手元の文字を持つ（日本語の変換中の文字が、URL の往復で崩れないように。DocuNavi の検索欄と同じ）
   const [text, setText] = useState(selection.q);
   if (keyOf(selection) !== seen) {
     setSeen(keyOf(selection));
-    setChosen(selection);
+    setChosen(typing ? { ...selection, q: chosen.q } : selection);
     // 打っている途中の文字（末尾の空白など）は、整えた形が URL と同じなら、そのまま残す
-    if (normalizeKeyword(text) !== selection.q) setText(selection.q);
+    if (!typing && normalizeKeyword(text) !== selection.q) setText(selection.q);
   }
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const composing = useRef(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // 最後に URL へ送った（または、入力欄の外で URL から受けた）キーワード。同じ検索を二重に送らない（確定のイベントが重なっても 1 回）
+  const lastSent = useRef(selection.q);
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) lastSent.current = selection.q;
+  }, [selection.q]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   // チップの一覧を、外を押す・フォーカスが外へ出る・Esc・別のチップを開く・画面の幅が変わる、で閉じる。Esc のときは、開いていたチップへフォーカスを戻す。
@@ -120,20 +133,27 @@ export function FilterForm({ master, facets, selection }: Props) {
     };
   }, []);
 
-  // 打つたびに履歴を増やさない（replace）。打ち止めから少し待って絞り込む。変換中は待つ。Enter（送信）は、すぐ絞り込む
-  function typeKeyword(value: string) {
+  // 打つたびに履歴を増やさない（replace）。打ち止めから少し待って絞り込む。変換中は待つ（途中の文字では絞らない）。
+  // 変換の確定（immediate）と Enter（送信）は、待たずにすぐ絞り込む
+  function typeKeyword(value: string, immediate = false) {
     setText(value);
     const next: Selection = { ...chosen, q: normalizeKeyword(value), page: 1 };
     setChosen(next);
     clearTimeout(timer.current);
-    if (composing.current || next.q === selection.q) return;
-    timer.current = setTimeout(() => startTransition(() => router.replace(hrefFor(next), { scroll: false })), 350);
+    if (composing.current || next.q === lastSent.current) return;
+    const go = () => {
+      lastSent.current = next.q;
+      startTransition(() => router.replace(hrefFor(next), { scroll: false }));
+    };
+    if (immediate) go();
+    else timer.current = setTimeout(go, TYPING_DELAY_MS);
   }
 
   function toggle(kind: Kind, code: number, on: boolean) {
     const codes = on ? [...chosen[kind], code] : chosen[kind].filter((c) => c !== code);
     const next: Selection = { ...chosen, [kind]: [...new Set(codes)].sort((a, b) => a - b), page: 1 };
     setChosen(next);
+    lastSent.current = next.q;
     startTransition(() => router.push(hrefFor(next), { scroll: false }));
   }
 
@@ -180,6 +200,7 @@ export function FilterForm({ master, facets, selection }: Props) {
       onSubmit={(e) => {
         e.preventDefault();
         clearTimeout(timer.current);
+        lastSent.current = chosen.q;
         startTransition(() => router.push(hrefFor({ ...chosen, page: 1 }), { scroll: false }));
       }}
     >
@@ -193,13 +214,17 @@ export function FilterForm({ master, facets, selection }: Props) {
         aria-label="キーワード（空白で区切ると、すべてを含む求人だけ）"
         title="空白で区切ると、すべてを含む求人だけに絞ります（AND）"
         enterKeyHint="search"
+        ref={inputRef}
         onChange={(e) => typeKeyword(e.target.value)}
+        onFocus={() => setTyping(true)}
+        onBlur={() => setTyping(false)}
         onCompositionStart={() => {
           composing.current = true;
+          clearTimeout(timer.current); // 変換の前に予約した検索は、変換中に動かさない
         }}
         onCompositionEnd={(e) => {
           composing.current = false;
-          typeKeyword(e.currentTarget.value);
+          typeKeyword(e.currentTarget.value, true);
         }}
       />
 
