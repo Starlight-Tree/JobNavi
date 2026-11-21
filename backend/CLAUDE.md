@@ -26,6 +26,7 @@ FastAPI + psycopg3（生の SQL。ORM・Alembic は使わない）。Python 3.13
 - **先に DB へ意図を書き、そのあとストレージを触る。** 削除は先に DB を確定してから実体を消す。この順を変えない（食い違いの設計は `image_service.py` の冒頭）。
 - **マイグレーション:** `migrations/NNNN_名前.sql` を足すだけ。適用済みを書き換えない・`DROP` / `TRUNCATE` を入れない。`db/schema.sql` を変えたら、`baseline_fingerprint.json` と `test_migrate.py` の整合を確かめる。
 - **エラー本文は固定の文。** 例外の文字列を `detail` に入れない。認証の失敗は、メールの有無が応答の速さや文面から分からないようにする（`security.py`）。
+- **園のログインは、メールごとに試行を数えて制限する**（`garden.py`。表は `0007_garden_login_attempts`、鍵はメールの SHA-256 だけ。上限を超えると正しいパスワードでも固定の 429）。IP では数えない。上限・窓は `settings.py` の `garden_login_limits()`。数値と限界は [docs/development.md](../docs/development.md) の「園のログインの試行制限と CORS」。
 - **権限の確認は API の SQL の条件で行う。** 画面を信用しない。他の園のものは 404。
 - **求職者の ID は、検証に通った JWT の `sub`（`users.auth_user_id`）だけから取る。** 画面・クライアントが送った別の値は使わない。署名は JWKS の公開鍵（ES256 / RS256）だけで検証し、共有秘密（HS256）や `alg=none` へは切り替えない（`jwt_auth.py`）。
 - `DEMO_DATA`、`STORAGE_S3_*` などの認証情報は、環境変数だけで受け取る。ログ・例外に出さない。
