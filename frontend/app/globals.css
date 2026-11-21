@@ -127,7 +127,20 @@ h1, h2 { line-height: 1.4; }
 .title-row { display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: baseline; margin-bottom: 24px; }
 .title-row h1 { margin: 0; font-size: 16.8px; flex-grow: 1; }
 .result-count { margin: 0; font-size: 13.6px; color: var(--muted); }
-.result-count strong { font-size: 20px; line-height: 1; color: var(--primary); margin-right: 2px; }
+/* 条件バー（しぼり込み + 件数）。DocuNavi は画面が固定で一覧の中だけがスクロールするが、JobNavi はページ全体がスクロールするので、条件バーだけを sticky にする。
+   1024px 以上だけ（それより狭いと、チップが縦に並んで画面を覆う）。重ね順は、チップの一覧（.facet-panel の 20）をバーの中に収め、ページ送り（10）・サイドパネル（25）・詳細パネル（--peek-z）との前後は、それぞれの行のコメントのとおり。
+   件数は、幅があるときはチップの右端（条件を変えたとき、同じ位置で件数が変わる）。狭い幅では、チップの上 */
+.search-bar { display: flex; flex-direction: column-reverse; align-items: stretch; gap: 4px; margin-bottom: 20px; }
+.search-bar .filter-bar { margin-bottom: 0; }
+@media (min-width: 1024px) {
+  .search-bar { position: sticky; top: 0; z-index: 20; flex-direction: row; align-items: flex-start; gap: 8px 16px; margin-bottom: 12px; padding: 8px 0; background: var(--bg); box-shadow: 0 1px 0 var(--border-soft); }
+  .search-bar .filter-bar { flex: 1 1 0; min-width: 0; }
+  .search-bar .result-count { flex: none; line-height: 2.4rem; white-space: nowrap; }
+  /* 「更新しています…」は、バーの下の余白にはみ出すので、下を通るカードと重ならないよう背景を塗る */
+  .search-bar .filter-status { padding: 0 4px; background: var(--bg); }
+  /* キーボードで動かしたとき、カードがバーの下に隠れないように */
+  html:has(.search-bar) { scroll-padding-top: 5rem; }
+}
 
 /* しぼり込み（上の横並びのチップ。DocuNavi の資料一覧と同じ形）。チップを押すと、真下に選択肢の一覧が開く（複数選べる）。開閉はブラウザー標準の <details> */
 .filter-bar { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 20px; }
@@ -439,7 +452,7 @@ a.pager-btn:hover { background: var(--surface-muted); }
 .app-main { flex: 1 1 0; min-width: 0; min-height: 100vh; display: flex; flex-direction: column; }
 .app-content { flex: 1 0 auto; }
 /* アカウントのメニューとツールチップが、右の本文の上に重なって見えるよう、重なり順を上げる */
-.app-sidebar { flex: 0 0 3.5rem; position: sticky; top: 0; z-index: 1; isolation: isolate; height: 100vh; display: flex; flex-direction: column; align-items: center; gap: 0.4rem; padding: 0.75rem 0.5rem; background: var(--surface); border-right: 1px solid var(--border); }
+.app-sidebar { flex: 0 0 3.5rem; position: sticky; top: 0; z-index: 25; isolation: isolate; height: 100vh; display: flex; flex-direction: column; align-items: center; gap: 0.4rem; padding: 0.75rem 0.5rem; background: var(--surface); border-right: 1px solid var(--border); }
 .app-rail { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; }
 .app-rail-foot { margin-top: auto; display: flex; justify-content: center; }
 .app-rail-btn { position: relative; display: grid; width: 2.5rem; height: 2.5rem; flex: none; place-items: center; border: 0; border-radius: 0.6rem; background: transparent; color: var(--muted); text-decoration: none; cursor: pointer; }

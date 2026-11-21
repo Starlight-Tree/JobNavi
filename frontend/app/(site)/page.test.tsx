@@ -124,3 +124,23 @@ describe('一覧（トップ）の「あなたへのおすすめ」', () => {
     expect(band()).toBeNull();
   });
 });
+
+describe('一覧（トップ）の件数と条件バー', () => {
+  it('条件が無いときは「全N件」、あるときは「検索結果 N件」（DocuNavi の資料一覧と同じ書き方。数字の前後に空白を入れない）', async () => {
+    api.fetchRecruits.mockResolvedValue({ total: 26, page: 1, per_page: 10, last_page: 3, items: [job(1)] });
+    const first = render(await Home(params()));
+    expect(first.container.querySelector('.result-count')).toHaveTextContent(/^全26件$/);
+    first.unmount();
+    const second = render(await Home(params({ area: '3' })));
+    expect(second.container.querySelector('.result-count')).toHaveTextContent(/^検索結果 26件$/);
+  });
+
+  it('しぼり込みと件数は、同じ条件バー（.search-bar。1024px 以上で画面の上に留まる）の中にある', async () => {
+    const { container } = render(await Home(params()));
+    const bar = container.querySelector('.search-bar')!;
+    expect(bar.querySelector('[data-testid="filter-form"]')).not.toBeNull();
+    expect(bar.querySelector('.result-count')).not.toBeNull();
+    // 見出しと診断の案内は、固定しない（バーの外）
+    expect(bar.querySelector('h1, .diagnosis-hint')).toBeNull();
+  });
+});
