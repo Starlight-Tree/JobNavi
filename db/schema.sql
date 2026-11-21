@@ -175,7 +175,9 @@ CREATE TABLE entries (                        -- 応募
 CREATE INDEX entries_user ON entries (user_id);
 
 -- ===== 検索用ビュー =====
--- 求人ごとに 1 行にして、条件の値は配列で持つ（JOIN で行が掛け算にならない）。
+-- 求人ごとに 1 行にして、条件の値は配列で持つ。
+-- 注: この形（4 つの中間表の LEFT JOIN + GROUP BY）は、JOIN で行が掛け算になる。統計が無いと、見積もりが数億行になり、JIT が毎回走って、26 件でも 1 本 35〜140ms かかった。
+--     0008 で、列ごとの ARRAY(SELECT …) に置き換えた（結果は同じ）。ここは 0001 の基準なので、定義そのものは変えない。
 CREATE VIEW recruit_search AS
 SELECT
   r.*,
