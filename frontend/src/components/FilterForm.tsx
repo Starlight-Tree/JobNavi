@@ -63,26 +63,41 @@ export function FilterForm({ master, facets, selection }: Props) {
   // URL が別の経路（チップの ✕、クリア、戻る）で変わったときは、サーバーの選択に合わせ直す。
   const [chosen, setChosen] = useState(selection);
   const [seen, setSeen] = useState(keyOf(selection));
-  // 入力欄を触っている間は、戻ってきた URL（自分が少し前に送った、古いキーワード）で、手元の文字を上書きしない。
-  // 上書きすると、続けて打った文字が一瞬消える（実測: 「温」→「温室」と打つと、「温」へ戻って、また「温室」になる）。
-  // URL を外から変えるもの（チップの ✕・クリア・戻る）は、入力欄から離れているときの操作なので、そのときだけ合わせ直す
-  const [typing, setTyping] = useState(false);
+  // 自分が URL へ送ったキーワードで、まだ戻ってきていないもの（古い順）。URL が変わったとき、その q がここにあれば「自分が送った検索の戻り」、
+  // 無ければ「外からの移動」（戻る・進む・チップの ✕・クリア）と見分ける。
+  // 戻りは、続けて打った手元の文字を上書きしない（上書きすると、「温」→「温室」と打つと、一瞬「温」へ戻る。実測）。外からの移動には、入力欄も合わせる。
+  // 入力欄にカーソルがあるかは、見分けに使わない（カーソルがあるまま戻る・進むを押しても、URL に合う）
+  const sent = useRef<string[]>([]);
   // キーワードの入力欄は、手元の文字を持つ（日本語の変換中の文字が、URL の往復で崩れないように。DocuNavi の検索欄と同じ）
   const [text, setText] = useState(selection.q);
   if (keyOf(selection) !== seen) {
     setSeen(keyOf(selection));
-    setChosen(typing ? { ...selection, q: chosen.q } : selection);
+    const mine = sent.current.includes(selection.q);
+    setChosen(mine ? { ...selection, q: chosen.q } : selection);
     // 打っている途中の文字（末尾の空白など）は、整えた形が URL と同じなら、そのまま残す
-    if (!typing && normalizeKeyword(text) !== selection.q) setText(selection.q);
+    if (!mine && normalizeKeyword(text) !== selection.q) setText(selection.q);
   }
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const composing = useRef(false);
-  const inputRef = useRef<HTMLInputElement>(null);
-  // 最後に URL へ送った（または、入力欄の外で URL から受けた）キーワード。同じ検索を二重に送らない（確定のイベントが重なっても 1 回）
+  // 最後に URL へ送った（または、外からの移動で URL から受けた）キーワード。同じ検索を二重に送らない（確定のイベントが重なっても 1 回）
   const lastSent = useRef(selection.q);
+  // URL へ送ったキーワードを記録する。戻ってこなかった送信（通信の失敗など）が溜まらないよう、10 件まで
+  function record(q: string) {
+    lastSent.current = q;
+    sent.current = [...sent.current, q].slice(-10);
+  }
+  // URL が変わったあとの片づけ。自分が送った検索の戻りなら、それより古い送信は、もう戻ってこないので捨てる。
+  // 外からの移動なら、予約していた検索（古い手元の文字）を取り消す。取り消さないと、戻った直後に発火して、元の条件へ戻してしまう
   useEffect(() => {
-    if (document.activeElement !== inputRef.current) lastSent.current = selection.q;
-  }, [selection.q]);
+    const at = sent.current.indexOf(selection.q);
+    if (at >= 0) {
+      sent.current = sent.current.slice(at + 1);
+    } else {
+      sent.current = [];
+      clearTimeout(timer.current);
+      lastSent.current = selection.q;
+    }
+  }, [keyOf(selection)]);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   // チップの一覧を、外を押す・フォーカスが外へ出る・Esc・別のチップを開く・画面の幅が変わる、で閉じる。Esc のときは、開いていたチップへフォーカスを戻す。
@@ -142,7 +157,7 @@ export function FilterForm({ master, facets, selection }: Props) {
     clearTimeout(timer.current);
     if (composing.current || next.q === lastSent.current) return;
     const go = () => {
-      lastSent.current = next.q;
+      record(next.q);
       startTransition(() => router.replace(hrefFor(next), { scroll: false }));
     };
     if (immediate) go();
@@ -153,7 +168,9 @@ export function FilterForm({ master, facets, selection }: Props) {
     const codes = on ? [...chosen[kind], code] : chosen[kind].filter((c) => c !== code);
     const next: Selection = { ...chosen, [kind]: [...new Set(codes)].sort((a, b) => a - b), page: 1 };
     setChosen(next);
-    lastSent.current = next.q;
+    // この URL には、最新のキーワードも入っている。予約していたキーワードの検索は要らない（古い条件で上書きしてしまう）
+    clearTimeout(timer.current);
+    record(next.q);
     startTransition(() => router.push(hrefFor(next), { scroll: false }));
   }
 
@@ -200,7 +217,7 @@ export function FilterForm({ master, facets, selection }: Props) {
       onSubmit={(e) => {
         e.preventDefault();
         clearTimeout(timer.current);
-        lastSent.current = chosen.q;
+        record(chosen.q);
         startTransition(() => router.push(hrefFor({ ...chosen, page: 1 }), { scroll: false }));
       }}
     >
@@ -214,10 +231,7 @@ export function FilterForm({ master, facets, selection }: Props) {
         aria-label="キーワード（空白で区切ると、すべてを含む求人だけ）"
         title="空白で区切ると、すべてを含む求人だけに絞ります（AND）"
         enterKeyHint="search"
-        ref={inputRef}
         onChange={(e) => typeKeyword(e.target.value)}
-        onFocus={() => setTyping(true)}
-        onBlur={() => setTyping(false)}
         onCompositionStart={() => {
           composing.current = true;
           clearTimeout(timer.current); // 変換の前に予約した検索は、変換中に動かさない

@@ -297,17 +297,79 @@ describe('FilterForm（上の横並びのチップ）', () => {
       }
     });
 
-    it('入力欄を触っている間は、戻ってきた古い URL で、続けて打った文字を消さない。離れたあとの URL の変更には合わせる', () => {
+    describe('URL が変わったとき、入力欄をどう扱うか', () => {
       const sel = (q: string) => parseSelection(q ? { q } : {});
-      const { rerender } = render(<FilterForm master={master} facets={facets} selection={sel('')} />);
-      box().focus();
-      fireEvent.change(box(), { target: { value: '温' } });
-      fireEvent.change(box(), { target: { value: '温室' } });
-      rerender(<FilterForm master={master} facets={facets} selection={sel('温')} />); // 「温」の検索の戻り
-      expect(box()).toHaveValue('温室');
-      box().blur();
-      rerender(<FilterForm master={master} facets={facets} selection={sel('')} />); // チップの ✕ など、外からの変更
-      expect(box()).toHaveValue('');
+
+      it('自分が送った検索の戻り（古いキーワード）では、続けて打った文字を消さない。カーソルの有無は関係ない', () => {
+        vi.useFakeTimers();
+        try {
+          const { rerender } = render(<FilterForm master={master} facets={facets} selection={sel('')} />);
+          fireEvent.change(box(), { target: { value: '温' } });
+          vi.advanceTimersByTime(200); // 「温」を送る
+          fireEvent.change(box(), { target: { value: '温室' } });
+          rerender(<FilterForm master={master} facets={facets} selection={sel('温')} />); // 「温」の戻り
+          expect(box()).toHaveValue('温室');
+          vi.advanceTimersByTime(200); // 「温室」を送る
+          rerender(<FilterForm master={master} facets={facets} selection={sel('温室')} />);
+          expect(box()).toHaveValue('温室');
+          expect(replace).toHaveBeenCalledTimes(2);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('カーソルがあるまま「戻る・進む」「クリア」で URL が変わったら、入力欄も URL に合わせる', () => {
+        vi.useFakeTimers();
+        try {
+          const { rerender } = render(<FilterForm master={master} facets={facets} selection={sel('')} />);
+          box().focus();
+          for (const q of ['温', '温室']) {
+            fireEvent.change(box(), { target: { value: q } });
+            vi.advanceTimersByTime(200);
+            rerender(<FilterForm master={master} facets={facets} selection={sel(q)} />); // 送った検索の戻り
+          }
+          expect(box()).toHaveValue('温室');
+          rerender(<FilterForm master={master} facets={facets} selection={sel('温')} />); // 戻る
+          expect(box()).toHaveValue('温');
+          rerender(<FilterForm master={master} facets={facets} selection={sel('温室')} />); // 進む
+          expect(box()).toHaveValue('温室');
+          rerender(<FilterForm master={master} facets={facets} selection={sel('')} />); // クリア
+          expect(box()).toHaveValue('');
+          expect(box()).toHaveFocus();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('検索を予約している間に「戻る」などで URL が変わったら、予約を取り消す（あとから発火して、元へ戻さない）', () => {
+        vi.useFakeTimers();
+        try {
+          const { rerender } = render(<FilterForm master={master} facets={facets} selection={sel('語り部')} />);
+          fireEvent.change(box(), { target: { value: '温室' } }); // 予約（まだ送らない）
+          vi.advanceTimersByTime(100);
+          rerender(<FilterForm master={master} facets={facets} selection={sel('')} />); // 戻る
+          expect(box()).toHaveValue('');
+          vi.advanceTimersByTime(1000);
+          expect(replace).not.toHaveBeenCalled();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('チェックを入れたら、予約していたキーワードの検索は取り消す（URL に、最新のキーワードがすでに入っている）', () => {
+        vi.useFakeTimers();
+        try {
+          render(<FilterForm master={master} facets={facets} selection={sel('')} />);
+          fireEvent.change(box(), { target: { value: '温室' } });
+          fireEvent.click(screen.getByRole('checkbox', { name: '第一環', hidden: true }));
+          expect(push).toHaveBeenCalledTimes(1);
+          expect(push).toHaveBeenCalledWith('/?area=3&q=%E6%B8%A9%E5%AE%A4', { scroll: false });
+          vi.advanceTimersByTime(1000);
+          expect(replace).not.toHaveBeenCalled();
+        } finally {
+          vi.useRealTimers();
+        }
+      });
     });
 
     it('Enter（送信）は、待たずにすぐ絞る（push）。待っていた replace は出さない', () => {
