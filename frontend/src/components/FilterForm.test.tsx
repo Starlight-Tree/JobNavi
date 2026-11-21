@@ -54,10 +54,16 @@ const facetOf = (label: string) => chip(label).closest('details') as HTMLDetails
 describe('FilterForm（上の横並びのチップ）', () => {
   it('4 つのチップを並べ、選んでいなければ「すべて」と出す', () => {
     render(<FilterForm master={master} facets={facets} selection={parseSelection({})} />);
-    for (const label of ['雇用形態', 'エリア', '最寄りの乗り場', '職種']) {
+    for (const label of ['職種', 'エリア', '乗り場', '雇用形態']) {
       expect(chip(label)).toHaveTextContent(`${label}すべて`);
       expect(facetOf(label)).toHaveAttribute('data-active', 'false');
     }
+  });
+
+  it('チップは、職種 → エリア → 乗り場 → 雇用形態の順（キーワード欄のあと）', () => {
+    render(<FilterForm master={master} facets={facets} selection={parseSelection({})} />);
+    expect([...document.querySelectorAll('.facet-label')].map((e) => e.textContent)).toEqual(['職種', 'エリア', '乗り場', '雇用形態']);
+    expect(document.querySelector('.filter-bar')?.firstElementChild).toHaveClass('filter-search');
   });
 
   it('選んだ条件は、チップに出して強調する（1 つならその名前、2 つ以上なら「先頭の名前 ほか N」）', () => {
@@ -65,9 +71,9 @@ describe('FilterForm（上の横並びのチップ）', () => {
     expect(chip('雇用形態')).toHaveTextContent('短時間勤務');
     expect(chip('エリア')).toHaveTextContent('第一環ほか1');
     expect(chip('職種')).toHaveTextContent('案内所の係');
-    expect(chip('最寄りの乗り場')).toHaveTextContent('すべて');
+    expect(chip('乗り場')).toHaveTextContent('すべて');
     expect(facetOf('エリア')).toHaveAttribute('data-active', 'true');
-    expect(facetOf('最寄りの乗り場')).toHaveAttribute('data-active', 'false');
+    expect(facetOf('乗り場')).toHaveAttribute('data-active', 'false');
   });
 
   it('選択肢ごとの件数を出す。件数が無いものは 0 と出す', () => {

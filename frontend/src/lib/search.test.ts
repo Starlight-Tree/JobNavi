@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { chipsFor, hasConditions, hrefFor, KEYWORD_MAX_LENGTH, normalizeKeyword, parseSelection, toQuery } from './search';
+import { chipsFor, DISPLAY_ORDER, hasConditions, hrefFor, KEYWORD_MAX_LENGTH, KINDS, normalizeKeyword, parseSelection, toQuery } from './search';
 import type { Master } from './types';
 
 const master: Master = {
@@ -47,9 +47,15 @@ describe('chipsFor', () => {
   it('選んだ条件ごとに、その 1 つだけを外したリンクを作り、ページは 1 に戻す', () => {
     const sel = parseSelection({ area: '3', employment: '1', page: '2' });
     const chips = chipsFor(sel, master);
-    expect(chips.map((c) => c.label)).toEqual(['常勤', '第一環']);
-    expect(chips[0]?.removeHref).toBe('/?area=3');
-    expect(chips[1]?.removeHref).toBe('/?employment=1');
+    // 並びは画面の順（職種 → エリア → 乗り場 → 雇用形態）。URL のクエリの順（KINDS）ではない
+    expect(chips.map((c) => c.label)).toEqual(['第一環', '常勤']);
+    expect(chips[0]?.removeHref).toBe('/?employment=1');
+    expect(chips[1]?.removeHref).toBe('/?area=3');
+  });
+
+  it('画面の並び（DISPLAY_ORDER）は、条件の種類（KINDS）を 1 つずつ全部含み、URL の並びとは別', () => {
+    expect([...DISPLAY_ORDER].sort()).toEqual([...KINDS].sort());
+    expect([...DISPLAY_ORDER]).not.toEqual([...KINDS]);
   });
 
   it('マスタに無い番号はチップに出さない', () => {

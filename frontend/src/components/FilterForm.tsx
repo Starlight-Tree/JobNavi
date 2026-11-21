@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
-import { hrefFor, KEYWORD_MAX_LENGTH, KINDS, normalizeKeyword, type Kind, type Selection } from '../lib/search';
+import { DISPLAY_ORDER, hrefFor, KEYWORD_MAX_LENGTH, KINDS, normalizeKeyword, type Kind, type Selection } from '../lib/search';
 import type { Code, Facets, Master } from '../lib/types';
 
 type Props = { master: Master; facets: Facets; selection: Selection };
@@ -13,6 +13,9 @@ const FACET_KEY: Record<Kind, keyof Omit<Facets, 'total'>> = {
   station: 'stations',
   occupation: 'occupations',
 };
+
+// チップの名前。短い名詞にそろえる（「乗り場」は、駅・停留所をまとめた、この世界の言い方）
+const TITLE: Record<Kind, string> = { occupation: '職種', area: 'エリア', station: '乗り場', employment: '雇用形態' };
 
 function counts(facets: Facets, kind: Kind): Map<number, number> {
   return new Map(facets[FACET_KEY[kind]].map((f) => [f.code, f.count]));
@@ -164,11 +167,7 @@ export function FilterForm({ master, facets, selection }: Props) {
   };
 
   const occupationCounts = counts(facets, 'occupation');
-  const simple: { kind: Kind; title: string; items: Code[] }[] = [
-    { kind: 'employment', title: '雇用形態', items: master.employments },
-    { kind: 'area', title: 'エリア', items: master.areas },
-    { kind: 'station', title: '最寄りの乗り場', items: master.stations },
-  ];
+  const itemsOf = (kind: Exclude<Kind, 'occupation'>): Code[] => (kind === 'employment' ? master.employments : kind === 'area' ? master.areas : master.stations);
 
   return (
     <form
@@ -204,32 +203,35 @@ export function FilterForm({ master, facets, selection }: Props) {
         }}
       />
 
-      {simple.map(({ kind, title, items }) => {
+      {/* チップは DISPLAY_ORDER の順。職種は、区分の見出しの下に、全部のチェックボックスを並べる（折りたたまない。一覧の高さを超えたら、中でスクロール）。幅は、いちばん長い職種名に合う */}
+      {DISPLAY_ORDER.map((kind) => {
+        if (kind === 'occupation') {
+          return (
+            <Facet key={kind} label={TITLE[kind]} names={nameOf(kind)}>
+              <fieldset>
+                <legend className="sr-only">{TITLE[kind]}</legend>
+                {master.occupations.map((group) => (
+                  <div key={group.category} className="occupation-group" role="group" aria-label={group.category}>
+                    <p className="group-title" aria-hidden="true">
+                      {group.category}
+                    </p>
+                    {group.items.map((item) => option(kind, item, occupationCounts))}
+                  </div>
+                ))}
+              </fieldset>
+            </Facet>
+          );
+        }
         const count = counts(facets, kind);
         return (
-          <Facet key={kind} label={title} names={nameOf(kind)}>
+          <Facet key={kind} label={TITLE[kind]} names={nameOf(kind)}>
             <fieldset>
-              <legend className="sr-only">{title}</legend>
-              {items.map((item) => option(kind, item, count))}
+              <legend className="sr-only">{TITLE[kind]}</legend>
+              {itemsOf(kind).map((item) => option(kind, item, count))}
             </fieldset>
           </Facet>
         );
       })}
-
-      {/* 職種は、区分の見出しの下に、全部のチェックボックスを並べる（折りたたまない。一覧の高さを超えたら、中でスクロール）。幅は、いちばん長い職種名に合う */}
-      <Facet label="職種" names={nameOf('occupation')}>
-        <fieldset>
-          <legend className="sr-only">職種</legend>
-          {master.occupations.map((group) => (
-            <div key={group.category} className="occupation-group" role="group" aria-label={group.category}>
-              <p className="group-title" aria-hidden="true">
-                {group.category}
-              </p>
-              {group.items.map((item) => option('occupation', item, occupationCounts))}
-            </div>
-          ))}
-        </fieldset>
-      </Facet>
 
       <button type="submit" className="filter-submit" hidden={enhanced}>
         この条件でさがす

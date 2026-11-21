@@ -4,6 +4,10 @@ import type { Master } from './types';
 export const KINDS = ['employment', 'area', 'station', 'occupation'] as const;
 export type Kind = (typeof KINDS)[number];
 
+// 画面に並べる順（しぼり込みのチップと、選んだ条件のチップ）。何の仕事か → どこか → 雇用の形、の順（求人サイトの検索画面に多い並び）。
+// URL のクエリの順（上の KINDS）とは別。KINDS を変えると、共有された URL の形が変わる
+export const DISPLAY_ORDER = ['occupation', 'area', 'station', 'employment'] as const satisfies readonly Kind[];
+
 /** キーワードの長さの上限。バックエンドの /api/recruits の q と同じ値（超えると 422）。 */
 export const KEYWORD_MAX_LENGTH = 100;
 
@@ -67,7 +71,7 @@ export function chipsFor(sel: Selection, master: Master): Chip[] {
   };
   const chips: Chip[] = [];
   if (sel.q) chips.push({ kind: 'q', code: 0, label: `検索：${sel.q}`, removeHref: hrefFor({ ...sel, q: '', page: 1 }) });
-  for (const kind of KINDS) {
+  for (const kind of DISPLAY_ORDER) {
     for (const code of sel[kind]) {
       const label = names[kind].get(code);
       if (!label) continue; // マスタに無い（削除済みの）番号は出さない
