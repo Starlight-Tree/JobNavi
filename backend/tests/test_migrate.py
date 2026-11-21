@@ -11,7 +11,7 @@ from tests.conftest import TEST_URL, load_initial_schema, new_database
 pytestmark = pytest.mark.skipif(not TEST_URL, reason="TEST_DATABASE_URL が未設定です")
 
 # 今ある番号。マイグレーションを足したら、ここだけ直す（0001 は baseline）
-ALL_VERSIONS = ["0001", "0002", "0003", "0004", "0005", "0006", "0007"]
+ALL_VERSIONS = ["0001", "0002", "0003", "0004", "0005", "0006", "0007", "0008"]
 
 
 def run(url: str, **kw) -> tuple[int, list[str]]:

@@ -144,3 +144,16 @@ def test_facets_apply_the_keyword_to_every_count(client):
     narrowed = client.get("/api/facets", params={"q": "語り部", "employment": 1}).json()
     assert narrowed["total"] <= 2
     assert sum(_counts(narrowed["employments"]).values()) == sum(_counts(body["employments"]).values())
+
+
+def test_search_view_plan_cost_stays_far_below_the_jit_threshold(client):
+    """検索用ビューの見積もりコストが、JIT の閾値（jit_above_cost の既定 100000）を大きく下回る。
+
+    4 つの中間表を LEFT JOIN して束ねる形は、統計が無いと、行が掛け算になると見積もられ（26 件で約 8.4 億行・コスト約 380 万）、
+    検索のたびに JIT のコンパイルが走って、1 本が 35〜140ms かかった。その形に戻したら、このテストが落ちる。
+    """
+    from app.db import connection
+
+    with connection() as conn:
+        plan = conn.execute("EXPLAIN (FORMAT JSON) SELECT count(*) FROM recruit_search s WHERE s.is_displayed").fetchone()["QUERY PLAN"]
+    assert plan[0]["Plan"]["Total Cost"] < 10_000
