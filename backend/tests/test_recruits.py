@@ -1,3 +1,9 @@
+import psycopg
+import pytest
+
+from tests.test_garden import db_exec
+
+
 def test_health(client):
     assert client.get("/health").json() == {"status": "ok"}
 
@@ -157,3 +163,103 @@ def test_search_view_plan_cost_stays_far_below_the_jit_threshold(client):
     with connection() as conn:
         plan = conn.execute("EXPLAIN (FORMAT JSON) SELECT count(*) FROM recruit_search s WHERE s.is_displayed").fetchone()["QUERY PLAN"]
     assert plan[0]["Plan"]["Total Cost"] < 10_000
+
+
+# --- 0009: キーワードの正規化（半角カナ・全角英数字・大文字小文字・ひらがな/カタカナ）。テスト用 DB の求人は seed_demo の 12 件（表示 11 件） ---
+def _keyword_total(client, q, **params):
+    return client.get("/api/recruits", params={"q": q, **params}).json()["total"]
+
+
+def test_keyword_existing_matches_are_unchanged_by_normalization(client):
+    # 正規化の前から当たっていた語は、同じ件数のまま
+    assert _keyword_total(client, "温室") == 4  # 職種名・業務内容・法人名（ザーハード砂漠温室組合 2 件）
+    assert _keyword_total(client, "ガイド") == 1  # 夜の花見ガイド
+    assert _keyword_total(client, "ミルフェン") == 2  # ミルフェン月面植物園の表示中の 2 件
+    assert _keyword_total(client, "語り部") == 2
+
+
+def test_keyword_ignores_halfwidth_kana_and_hiragana_katakana_differences(client):
+    for q in ("ｶﾞｲﾄﾞ", "がいど", "ガいど", "ガイド"):  # 半角カナ、ひらがな、混ぜ書き
+        assert _keyword_total(client, q) == 1, q
+    for q in ("ﾐﾙﾌｪﾝ", "みるふぇん", "ミルフェン"):
+        assert _keyword_total(client, q) == 2, q
+
+
+def test_keyword_does_not_reach_kanji_readings(client):
+    # 読みの辞書は持たない（既知の限界）。おんしつ は 温室 には当たらない
+    assert _keyword_total(client, "おんしつ") == 0
+
+
+def test_keyword_ignores_fullwidth_and_halfwidth_symbols(client):
+    # 住所は「（架空の住所）」と全角の括弧で入っている。半角で打っても当たる
+    assert _keyword_total(client, "（架空の住所）") == 11
+    assert _keyword_total(client, "(架空の住所)") == 11
+
+
+def test_keyword_ignores_case_and_fullwidth_alphanumerics(client):
+    # ダミーデータに英数字を含む求人が無いので、1 件足して確かめる（終わったら消す）
+    db_exec("INSERT INTO recruits (category, corporate, is_displayed) VALUES ('Ｗｅｂ編集のＺＺＺ', '正規化テスト法人', true)")
+    try:
+        for q in ("zzz", "ZZZ", "ＺＺＺ", "ｚｚｚ", "web", "ＷＥＢ", "ｗeb"):
+            assert _keyword_total(client, q) == 1, q
+    finally:
+        db_exec("DELETE FROM recruits WHERE corporate = '正規化テスト法人'")
+
+
+def test_keyword_terms_in_different_spellings_are_anded(client):
+    assert _keyword_total(client, "ｶﾞｲﾄﾞ ミルフェン") == 1
+    assert _keyword_total(client, "ｶﾞｲﾄﾞ　みるふぇん") == 1  # 全角の空白でも区切る
+    assert _keyword_total(client, "ｶﾞｲﾄﾞ ザーハード") == 0
+
+
+def test_keyword_wildcards_stay_plain_after_normalization(client):
+    # 全角の ％ ＿ ＼ は、正規化で % _ \ になる。エスケープは正規化のあとなので、ワイルドカードにはならない
+    for q in ("％", "＿", "＼", "語り部％", "語＿部"):
+        assert _keyword_total(client, q) == 0, q
+
+
+@pytest.mark.parametrize(
+    ("raw", "folded"),
+    [
+        ("ｶﾞｲﾄﾞ", "ガイド"),  # 半角カナ（濁点つき）
+        ("ﾐﾙﾌｪﾝ", "ミルフェン"),
+        ("がいど", "ガイド"),  # ひらがな
+        ("ゔゝ", "ヴヽ"),  # ひらがなの端（ゔ・繰り返し記号）
+        ("が", "ガ"),  # 結合文字の濁点
+        ("ＺＺＺ１２３", "zzz123"),  # 全角英数字と大文字
+        ("Ｓｔａｒ　Ｇａｒｄｅｎ", "star garden"),  # 全角の空白
+        ("㈱", "(株)"),
+        ("温室", "温室"),  # 漢字は変えない
+        ("ー", "ー"),  # 長音は変えない
+        ("", ""),
+    ],
+)
+def test_search_fold_rule(client, raw, folded):
+    assert db_exec("SELECT search_fold(%s)", (raw,))[0][0] == folded
+
+
+@pytest.mark.parametrize(
+    ("raw", "pattern"),
+    [("ガイド", "%ガイド%"), ("ｶﾞｲﾄﾞ", "%ガイド%"), ("100%", "%100\\%%"), ("a_b", "%a\\_b%"), ("\\", "%\\\\%"), ("％＿＼", "%\\%\\_\\\\%")],
+)
+def test_search_pattern_escapes_after_folding(client, raw, pattern):
+    assert db_exec("SELECT search_pattern(%s)", (raw,))[0][0] == pattern
+
+
+def test_search_view_keeps_the_old_columns_and_adds_search_text_last(client):
+    cols = [r[0] for r in db_exec("SELECT column_name FROM information_schema.columns WHERE table_name = 'recruit_search' ORDER BY ordinal_position")]
+    assert cols[-5:] == ["area_codes", "station_codes", "occupation_codes", "employment_codes", "search_text"]
+    assert len(cols) == 42  # 0008 の 41 列 + search_text
+
+
+def test_search_text_is_kept_up_to_date_by_the_database(client):
+    # 保存した列（生成列）は、書き込みのたびに DB が計算し直す。直接は書けない
+    db_exec("INSERT INTO recruits (category, corporate, is_displayed) VALUES ('ｶﾞｲﾄﾞ ＡＢＣ', '正規化テスト法人', false)")
+    try:
+        assert db_exec("SELECT search_text FROM recruits WHERE corporate = '正規化テスト法人'")[0][0] == "ガイド abc 正規化テスト法人"
+        db_exec("UPDATE recruits SET category = 'がいど' WHERE corporate = '正規化テスト法人'")
+        assert db_exec("SELECT search_text FROM recruits WHERE corporate = '正規化テスト法人'")[0][0] == "ガイド 正規化テスト法人"
+        with pytest.raises(psycopg.errors.GeneratedAlways):
+            db_exec("UPDATE recruits SET search_text = 'x' WHERE corporate = '正規化テスト法人'")
+    finally:
+        db_exec("DELETE FROM recruits WHERE corporate = '正規化テスト法人'")

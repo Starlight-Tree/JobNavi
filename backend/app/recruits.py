@@ -28,9 +28,11 @@ _KINDS = (
     ("employments", "employment_codes", "employment"),
 )
 
-# キーワード（q）。空白（全角も）で区切った語が、すべて、次の列のどれかに含まれる求人だけ（語の間は AND、列の間は OR）。
+# キーワード（q）。空白（全角も）で区切った語が、すべて、検索用の文字列（recruit_search.search_text）に含まれる求人だけ（語の間は AND）。
+# search_text は、職種名・法人名・紹介・所在地・業務内容 1〜3 をつなげて、正規化したもの（0009 の recruit_search_text。対象の列を変えるときは、そこを直す）。
 # 備考（note1〜3）は、「交通費は規定により支給」のような定型文が多く、ノイズになるので対象にしない。
-_KEYWORD_COLUMNS = ("category", "corporate", "profile", "place", "comment1", "comment2", "comment3")
+# 正規化（search_fold）は、NFKC → 小文字 → ひらがな→カタカナ。求人の側（保存した列）と検索語の側（search_pattern）で、同じ DB の関数を通す（規則を 1 か所にするため）。
+# 半角カナ・全角英数字・大文字小文字・ひらがな/カタカナの違いを吸収する。漢字の読み（おんしつ → 温室）は、辞書が要るので対象外。
 KEYWORD_MAX_LENGTH = 100
 KEYWORD_MAX_TERMS = 5
 
@@ -46,12 +48,6 @@ def _keyword_terms(q: str | None) -> list[str]:
     return list(dict.fromkeys((q or "").split()))[:KEYWORD_MAX_TERMS]
 
 
-def _like_pattern(term: str) -> str:
-    """部分一致の ILIKE の形。語の中の % _ \\ は、ただの文字として扱う（ワイルドカードにしない）。"""
-    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped}%"
-
-
 def _where(selected: dict[str, list[int] | None], skip: str | None = None, q: str | None = None) -> tuple[str, dict[str, object]]:
     """検索の規則: 同じ種類の条件の中は OR（配列が重なれば一致）、種類の間は AND。キーワード（q）も AND。表示中の求人だけ。
 
@@ -64,10 +60,10 @@ def _where(selected: dict[str, list[int] | None], skip: str | None = None, q: st
         if values and name != skip:
             where.append(f"s.{column} && %({key})s::int[]")
             params[key] = values
-    haystack = "concat_ws(' ', " + ", ".join(f"s.{col}" for col in _KEYWORD_COLUMNS) + ")"  # 列名は、このモジュールの固定の文字列だけ
     for i, term in enumerate(_keyword_terms(q)):
-        where.append(f"{haystack} ILIKE %(kw{i})s")
-        params[f"kw{i}"] = _like_pattern(term)
+        # 語は、生のまま渡す。DB の search_pattern が、正規化してから % _ \\ をエスケープして（ワイルドカードにせず）、%語% にする
+        where.append(f"s.search_text LIKE search_pattern(%(kw{i})s::text)")
+        params[f"kw{i}"] = term
     return " AND ".join(where), params
 
 
