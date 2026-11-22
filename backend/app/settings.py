@@ -97,6 +97,28 @@ def garden_login_limits() -> tuple[int, int]:
     )
 
 
+# ---- 検索エンジン（app/search_engine.py）。既定は Postgres（LIKE）。meilisearch にすると、キーワード（q）の候補を Meilisearch から引く（届かないときは Postgres に戻る）。 ----
+
+
+def search_engine_name() -> str:
+    """postgres（既定）/ meilisearch。別の値は、別の値に切り替えず設定ミスとして例外にする。"""
+    value = os.environ.get("SEARCH_ENGINE", "").strip() or "postgres"
+    if value not in ("postgres", "meilisearch"):
+        raise RuntimeError("SEARCH_ENGINE は postgres か meilisearch にしてください")
+    return value
+
+
+def meilisearch_config() -> tuple[str, str | None, int]:
+    """(URL, API キー, 通信の待ち秒数)。MEILI_URL が無ければ設定ミスとして例外。キーは MEILI_API_KEY（無ければ None）。待ちは MEILI_TIMEOUT_SECONDS（既定 2）。"""
+    url = _http_url("MEILI_URL")
+    if url is None:
+        raise RuntimeError("MEILI_URL が未設定です")
+    key = os.environ.get("MEILI_API_KEY", "").strip() or None
+    if key is not None and not (key.isascii() and key.isprintable()):  # HTTP のヘッダーに入れられない文字（日本語・改行など）は、起動で止める（値は出さない）
+        raise RuntimeError("MEILI_API_KEY に、ASCII の印字できる文字以外が入っています")
+    return url, key, _bounded_int_env("MEILI_TIMEOUT_SECONDS", 2, 1, 30)
+
+
 def required_env(name: str) -> str:
     value = os.environ.get(name, "")
     if not value:

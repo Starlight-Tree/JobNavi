@@ -62,6 +62,25 @@ docker compose run --rm migrate python -m app.migrate --dry-run   # 事前検査
 docker compose run --rm migrate                                   # 適用
 ```
 
+## 検索エンジン（任意）
+
+キーワード（`q`）の検索は、既定では Postgres（`LIKE`。0009 の正規化）です。Meilisearch に切り替えることもできます（2026-11-22 に足した。既定は使わない）。**Postgres が正で、Meilisearch は写し（索引）**です。
+
+```bash
+docker compose --profile search up -d meilisearch      # 検索エンジンを起動（backend-net の中だけ。ホストには公開しない）
+docker compose run --rm search-index                    # DB から索引を作り直す（何度流しても同じ。入れ替えの間も検索できる）
+SEARCH_ENGINE=meilisearch docker compose up -d api      # api を、エンジンを使う設定で起動（常用するなら .env に書く）。戻すときは SEARCH_ENGINE を外して up -d api
+```
+
+- **仕組み:** 語を DB の `search_fold`（0009）で畳み、Meilisearch に `locales: ["jpn"]`・全語一致で聞いて、候補の id（関連度の順）を受け取る。表示中か・条件・権限は、これまでどおり SQL が判定し、並びは候補の順。`/api/facets` も同じ候補を使う（1 リクエストにつき 1 回だけ聞く）。
+- **退避:** エンジンに届かない・索引が無い・エラー・結果が上限（1,000 件）に届いた・応答が不正（途中で切れる・HTTP でないを含む）のときは、Postgres の `LIKE` で探す（警告ログ。例外の本文は固定の文）。届かない・エラー・不正のときは、10 秒間は聞かずに探す（毎回タイムアウトを待たない）。エンジンを同時に待つのは 4 本まで（超えた分は待たずに Postgres で探す）。Meilisearch の検索構文（語頭の `-`、`"`）を含む語は、エンジンに渡さず Postgres で探す（`LIKE` ではただの文字なので、経路で意味が変わらないように）。エンジンの返事を待つ間は、DB の接続を持たない。リダイレクトは辿らない（API キーを別のホストへ送らない）。`SEARCH_ENGINE` の値や `MEILI_URL` の設定ミスは、別の値に切り替えず、起動で止める。
+- **索引:** 表示中の求人だけ、`search_fold` を通した 7 列（職種名・法人名・紹介・所在地・業務内容 1〜3。DB の `recruit_search_text` の対象の列と同じで、片方を変えたらもう片方も直す。テストが見張る）。`python -m app.search_index`（`--status` で状態）。いつも別名の索引（`recruits_next`）に全件を入れてから、入れ替え（すでに索引があるとき）か改名（初回）で使う名前にする。途中で失敗しても、一部だけの索引は使われない。求人を足す・変える・非表示にしたあと（`seed` のあとを含む）に流す。流し忘れても、非表示の求人は出ない（新しい求人が出ないだけ）。
+- **言語は日本語に固定:** 自動判定だと、漢字だけの語（「温室」）が中国語と判定され、0 件になった（2026-11-22、開発 DB の 26 件で確認）。
+- **Postgres との違い（同じ 26 件で比べた）:** Meilisearch は単語単位。1 文字の「室」は 0 件（Postgres は 5 件）。タイポ許容があり、「ガイト」が「ガイド」に当たる（Postgres は 0 件）。「おんしつ」→「温室」（読み）は、どちらも当たらない。それ以外の語（温室・ガイド・半角カナ・ひらがな・`(架空の住所)` など）は、件数が同じ。
+- **設定（環境変数）:** `SEARCH_ENGINE`（`postgres` / `meilisearch`。既定 `postgres`。別の値は起動で止まる）、`MEILI_URL`（`SEARCH_ENGINE=meilisearch` のとき必須。http(s) の URL）、`MEILI_API_KEY`（ASCII の印字できる文字だけ。違えば起動で止まる）、`MEILI_TIMEOUT_SECONDS`（既定 2、1〜30）。Compose では `MEILI_MASTER_KEY`（既定は開発用の値）を、`meilisearch` の鍵と、api・`search-index` の `MEILI_API_KEY` に渡す。`meilisearch` は profile: search なので、`.env` で常用するときは `COMPOSE_PROFILES=search` も要る。
+- **本番:** 置き場は未決。永続ディスクと常駐が要り、Cloud Run のスケールゼロでは索引が消える。マスターキーは開発用の既定値（秘密ではない）とは別の値にし、API には検索だけのキーを渡す（`MEILI_API_KEY`）。
+- **テスト:** 偽のエンジン（`backend/tests/fake_meili.py`）で、呼び方・並び・退避・索引の作り直しを確かめる。本物のエンジンの検索の質は、CI では確かめない。
+
 ## 園のログインの試行制限と CORS
 
 - **試行制限**（`backend/app/garden.py`。表は `0007_garden_login_attempts.sql`）: メールアドレスごとに数える。IP では数えない（API を呼ぶのは画面のサーバーで、どの利用者も送信元が同じになるため）。窓（既定 15 分。そのメールの最初の試行から）の中で上限（既定 5 回）を超えた試行は、正しいパスワードでも 429（固定の文）。メールが登録済みかどうかで、応答も処理も分けない（登録が無いときも、パスワードの検証と同じ処理を通す）。成功すると、そのメールの数えを消す。窓の 2 倍より古い行は、ログインのついでに消す。

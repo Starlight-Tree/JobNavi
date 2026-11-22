@@ -10,12 +10,14 @@ from app.images_api import media_router
 from app.images_api import router as images_router
 from app.recruit_events import router as recruit_events_router
 from app.recruits import router as recruits_router
-from app.settings import cors_origins, garden_login_limits, storage_backend
+from app.settings import cors_origins, garden_login_limits, meilisearch_config, search_engine_name, storage_backend
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     garden_login_limits()  # 園のログインの制限の設定ミス（整数でない・範囲外）は、リクエストの途中ではなく、起動で止める
+    if search_engine_name() == "meilisearch":
+        meilisearch_config()  # 検索エンジンの設定ミス（URL なし）も、同じく起動で止める
     db.open_pool()
     try:
         yield

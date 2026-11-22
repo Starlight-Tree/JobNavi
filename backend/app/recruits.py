@@ -1,13 +1,18 @@
+import logging
 import math
 from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query
 
+from app import search_engine
 from app.db import connection
 from app.image_queries import hero_images, public_images
 from app.schemas import Facets, Master, RecruitDetail, RecruitPage, RecruitSummary
+from app.search_engine import EngineUnavailable
+from app.settings import search_engine_name
 from app.storage import get_storage
 
+log = logging.getLogger("app.recruits")
 router = APIRouter(prefix="/api")
 
 # 表示用の名前は、検索用ビュー（recruit_search）の配列の番号から、マスタの名前を引いて付ける
@@ -29,10 +34,12 @@ _KINDS = (
 )
 
 # キーワード（q）。空白（全角も）で区切った語が、すべて、検索用の文字列（recruit_search.search_text）に含まれる求人だけ（語の間は AND）。
-# search_text は、職種名・法人名・紹介・所在地・業務内容 1〜3 をつなげて、正規化したもの（0009 の recruit_search_text。対象の列を変えるときは、そこを直す）。
+# search_text は、職種名・法人名・紹介・所在地・業務内容 1〜3 をつなげて、正規化したもの（0009 の recruit_search_text。対象の列を変えるときは、そこと search_engine.SEARCHABLE を直す）。
 # 備考（note1〜3）は、「交通費は規定により支給」のような定型文が多く、ノイズになるので対象にしない。
 # 正規化（search_fold）は、NFKC → 小文字 → ひらがな→カタカナ。求人の側（保存した列）と検索語の側（search_pattern）で、同じ DB の関数を通す（規則を 1 か所にするため）。
 # 半角カナ・全角英数字・大文字小文字・ひらがな/カタカナの違いを吸収する。漢字の読み（おんしつ → 温室）は、辞書が要るので対象外。
+# SEARCH_ENGINE=meilisearch のときは、語が候補の id（関連度の順）に置き換わる（search_engine.py）。表示中か・条件・権限は、いつもこの SQL が決める。
+# エンジンに届かない・結果が多すぎるときは、上の LIKE で探す（Postgres が正。エンジンは写し）。
 KEYWORD_MAX_LENGTH = 100
 KEYWORD_MAX_TERMS = 5
 
@@ -48,10 +55,33 @@ def _keyword_terms(q: str | None) -> list[str]:
     return list(dict.fromkeys((q or "").split()))[:KEYWORD_MAX_TERMS]
 
 
-def _where(selected: dict[str, list[int] | None], skip: str | None = None, q: str | None = None) -> tuple[str, dict[str, object]]:
+def _engine_ids(q: str | None) -> list[int] | None:
+    """キーワードの候補の id（関連度の順）を、検索エンジンから引く。使わない設定・語が無い・エンジンを使えないときは None（Postgres の LIKE で探す）。
+
+    語は、求人の側と同じ DB の関数 search_fold を通してから渡す。リクエストごとに 1 回だけ呼ぶ（件数の数え方のたびに引き直さない）。
+    エンジンの返事を待つ間は、DB の接続を持たない（接続は最大 5 本。エンジンが固まっても、ほかの API を巻き込まないため）。
+    """
+    terms = _keyword_terms(q)
+    if not terms or search_engine_name() != "meilisearch":
+        return None
+    try:
+        with connection() as conn:  # 短い接続。畳むだけ
+            folded = [conn.execute("SELECT search_fold(%s::text) AS t", (term,)).fetchone()["t"] for term in terms]
+        if not search_engine.usable_terms(folded):
+            return None
+        return search_engine.search_ids(" ".join(folded))
+    except EngineUnavailable as exc:
+        log.warning("検索エンジンを使えないので、Postgres の検索に切り替えました: %s", exc)  # 例外の本文は固定の文（URL・鍵を含まない）
+        return None
+
+
+def _where(
+    selected: dict[str, list[int] | None], skip: str | None = None, q: str | None = None, ids: list[int] | None = None
+) -> tuple[str, dict[str, object]]:
     """検索の規則: 同じ種類の条件の中は OR（配列が重なれば一致）、種類の間は AND。キーワード（q）も AND。表示中の求人だけ。
 
     skip に種類の名前を渡すと、その種類の条件は使わない（件数の数え方に使う。キーワードは、いつも使う）。
+    ids（検索エンジンの候補。空でもよい）があれば、キーワードは id で絞る（LIKE は使わない）。
     """
     where = ["s.is_displayed"]
     params: dict[str, object] = {}
@@ -60,10 +90,14 @@ def _where(selected: dict[str, list[int] | None], skip: str | None = None, q: st
         if values and name != skip:
             where.append(f"s.{column} && %({key})s::int[]")
             params[key] = values
-    for i, term in enumerate(_keyword_terms(q)):
-        # 語は、生のまま渡す。DB の search_pattern が、正規化してから % _ \\ をエスケープして（ワイルドカードにせず）、%語% にする
-        where.append(f"s.search_text LIKE search_pattern(%(kw{i})s::text)")
-        params[f"kw{i}"] = term
+    if ids is not None:
+        where.append("s.id = ANY(%(kw_ids)s::int[])")
+        params["kw_ids"] = ids
+    else:
+        for i, term in enumerate(_keyword_terms(q)):
+            # 語は、生のまま渡す。DB の search_pattern が、正規化してから % _ \\ をエスケープして（ワイルドカードにせず）、%語% にする
+            where.append(f"s.search_text LIKE search_pattern(%(kw{i})s::text)")
+            params[f"kw{i}"] = term
     return " AND ".join(where), params
 
 
@@ -93,12 +127,13 @@ def facets(
     area: AreaQ = None, station: StationQ = None, occupation: OccupationQ = None, employment: EmploymentQ = None, q: KeywordQ = None
 ) -> Facets:
     selected = {"area": area, "station": station, "occupation": occupation, "employment": employment}
-    clause, params = _where(selected, q=q)
     counts: dict[str, list[dict]] = {}
+    ids = _engine_ids(q)
     with connection() as conn:
+        clause, params = _where(selected, q=q, ids=ids)
         total = conn.execute(f"SELECT count(*) AS n FROM recruit_search s WHERE {clause}", params).fetchone()["n"]  # noqa: S608
         for name, column, _ in _KINDS:
-            others, other_params = _where(selected, skip=name, q=q)
+            others, other_params = _where(selected, skip=name, q=q, ids=ids)
             counts[name] = conn.execute(
                 f"SELECT c AS code, count(*)::int AS count FROM recruit_search s, unnest(s.{column}) AS c "  # noqa: S608
                 f"WHERE {others} GROUP BY c ORDER BY c",
@@ -117,12 +152,15 @@ def search_recruits(
     page: Annotated[int, Query(ge=1)] = 1,
     per_page: Annotated[int, Query(ge=1, le=50)] = 10,
 ) -> RecruitPage:
-    clause, params = _where({"area": area, "station": station, "occupation": occupation, "employment": employment}, q=q)
+    ids = _engine_ids(q)
     with connection() as conn:
+        clause, params = _where({"area": area, "station": station, "occupation": occupation, "employment": employment}, q=q, ids=ids)
+        # エンジンの候補があるときは、関連度の順（候補の並び）。無いときは id の順
+        order = "array_position(%(kw_ids)s::int[], s.id)" if ids is not None else "s.id"
         total = conn.execute(f"SELECT count(*) AS n FROM recruit_search s WHERE {clause}", params).fetchone()["n"]  # noqa: S608
         rows = conn.execute(
             f"SELECT {_SUMMARY_COLS}, {_NAMES} FROM recruit_search s WHERE {clause} "  # noqa: S608
-            "ORDER BY s.id LIMIT %(limit)s OFFSET %(offset)s",
+            f"ORDER BY {order} LIMIT %(limit)s OFFSET %(offset)s",
             {**params, "limit": per_page, "offset": (page - 1) * per_page},
         ).fetchall()
         heroes = hero_images(conn, [row["id"] for row in rows], get_storage())  # 画像は、この 1 ページの分をまとめて 1 回で引く

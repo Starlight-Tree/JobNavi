@@ -95,6 +95,50 @@ services:
       - backend-net
     restart: "no"
 
+  # 検索エンジン（任意。profile: search）。Postgres が正で、これは写し（索引）。api に SEARCH_ENGINE=meilisearch を渡したときだけ使う（既定は使わない）。
+  # 起動: `docker compose --profile search up -d meilisearch`、索引づくり: `docker compose run --rm search-index`。docs/development.md の「検索エンジン（任意）」
+  # backend-net（internal）にだけ置く。ホストには公開しない。MEILI_MASTER_KEY の既定は開発用の値（秘密ではない）。本番は別の値を Infisical などで渡す
+  meilisearch:
+    image: getmeili/meilisearch:v1.57.0
+    container_name: jobnavi-meilisearch
+    labels:
+      local.ui.group: "App-JobNavi"
+    profiles: ["search"]
+    environment:
+      MEILI_ENV: production   # 開発用のダッシュボードを無効にし、マスターキーを必須にする
+      MEILI_MASTER_KEY: "${MEILI_MASTER_KEY:-jobnavi-local-meili-key}"
+      MEILI_NO_ANALYTICS: "true"
+    volumes:
+      - meili-data:/meili_data
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:7700/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  # 検索エンジンの索引を、DB から作り直す（何度流しても同じ。求人を足す・変えたあと、seed のあとに流す）。meilisearch が起動していること
+  search-index:
+    build: ./backend
+    container_name: jobnavi-search-index
+    labels:
+      local.ui.group: "App-JobNavi"
+    profiles: ["tools"]
+    command: ["python", "-m", "app.search_index"]
+    environment:
+      DATABASE_URL: *database_url
+      MEILI_URL: "http://meilisearch:7700"
+      MEILI_API_KEY: "${MEILI_MASTER_KEY:-jobnavi-local-meili-key}"
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - backend-net
+    restart: "no"
+
   api:
     build: ./backend
     container_name: jobnavi-api
@@ -120,6 +164,10 @@ services:
       AUTH_AUDIENCE: "jobnavi"
       # ホスト↔コンテナ間のボリュームでファイル変更通知が届かない環境（Docker Desktop 等）向け
       WATCHFILES_FORCE_POLLING: "true"
+      # 検索エンジン（任意）。既定は Postgres の検索。meilisearch にすると、キーワード（q）の候補を Meilisearch から引く（届かない・結果が多すぎるときは Postgres に戻る）
+      SEARCH_ENGINE: "${SEARCH_ENGINE:-postgres}"
+      MEILI_URL: "http://meilisearch:7700"
+      MEILI_API_KEY: "${MEILI_MASTER_KEY:-jobnavi-local-meili-key}"
     volumes:
       - ./backend/app:/code/app
       - dev-media:/data/media
@@ -201,7 +249,7 @@ services:
     restart: unless-stopped
 
 # frontend-net: frontend と api（frontend は npm ci と Google への通信で外へ出る）。
-# backend-net: db と、api・frontend・道具（migrate・seed・seed-images）。internal なので、db は外へ出られず、ホストからも届かない。
+# backend-net: db・meilisearch（profile: search）と、api・frontend・道具（migrate・seed・seed-images・search-index）。internal なので、db は外へ出られず、ホストからも届かない。
 #   frontend が backend-net にいるのは、ログイン（Better Auth の auth_ の表）のため。2026-11-20 に、Next.js の公式の構成（認証を画面のサーバーの中に置く）を選んで、DB へ届くようにした。
 networks:
   frontend-net:
@@ -211,5 +259,6 @@ networks:
 volumes:
   pg-data:
   dev-media:   # 開発用の画像の保存先（API と seed-images が共有）。docker compose down -v で消える
+  meili-data:  # 検索エンジンの索引（写し。DB から作り直せる）。docker compose down -v で消える
   frontend_node_modules:
   frontend_next_cache:
