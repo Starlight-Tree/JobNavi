@@ -26,6 +26,7 @@ FastAPI + psycopg3（生の SQL。ORM・Alembic は使わない）。Python 3.13
 - **先に DB へ意図を書き、そのあとストレージを触る。** 削除は先に DB を確定してから実体を消す。この順を変えない（食い違いの設計は `image_service.py` の冒頭）。
 - **マイグレーション:** `migrations/NNNN_名前.sql` を足すだけ。適用済みを書き換えない・`DROP` / `TRUNCATE` を入れない。`db/schema.sql` を変えたら、`baseline_fingerprint.json` と `test_migrate.py` の整合を確かめる。
 - **検索用ビュー `recruit_search` は、中間表を JOIN して束ねない。** 配列の列は `ARRAY(SELECT …)` の相関サブクエリで作る（`0008`）。JOIN の掛け算は、統計が無いと見積もりが数億行になり、JIT が毎回走って、1 本 35〜140ms かかる。`tests/test_recruits.py` が、ビューの見積もりコスト（10,000 未満）で見張る。
+- **キーワード検索の正規化は、DB の関数 1 か所。** 検索の対象の列と規則は `recruit_search_text` / `search_fold`（`0009`）で、`recruits.search_text`（生成列・保存）を `search_text LIKE search_pattern(語)` で探す。変えるときは新しいマイグレーションで関数を作り直し、`ALTER TABLE recruits ALTER COLUMN search_text SET EXPRESSION AS (…)` で保存値を計算し直す（自動では直らない）。関数の中から別の関数を呼ぶときは `public.` を付ける（`pg_restore` は `search_path` を空にするので、付けないとバックアップから戻せない。`test_backup_and_restore_roundtrip` が見張る）。
 - **エラー本文は固定の文。** 例外の文字列を `detail` に入れない。認証の失敗は、メールの有無が応答の速さや文面から分からないようにする（`security.py`）。
 - **園のログインは、メールごとに試行を数えて制限する**（`garden.py`。表は `0007_garden_login_attempts`、鍵はメールの SHA-256 だけ。上限を超えると正しいパスワードでも固定の 429）。IP では数えない。上限・窓は `settings.py` の `garden_login_limits()`。数値と限界は [docs/development.md](../docs/development.md) の「園のログインの試行制限と CORS」。
 - **権限の確認は API の SQL の条件で行う。** 画面を信用しない。他の園のものは 404。
