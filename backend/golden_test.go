@@ -2,7 +2,7 @@ package main
 
 // Python（FastAPI）の API が、同じ手順で作った DB に返した応答（testdata/golden_read.json）を、Go の API に再生して、一字一句そろっているかを確かめる。
 // 読み取り系の経路（/health・マスタ・条件ごとの件数・検索・詳細）と、404・405・422・CORS の形が対象。uuid は <uuid> に直して比べる。
-// 作り直し方: 作業用のスクリプト（.claude/handoff/go-migration/record_golden.sh。Python が動く環境で）。応答の形を意図して変えたときは、golden を作り直す。
+// 作り直し方: 旧 Python の API（`git show 4dc1c0f:backend/…` で取り出せる）を、同じ手順で作った DB に向けて動かし、同じ要求の応答を記録する。記録の道具は削除したので書き直す。応答の形を意図して変えたときは、golden を作り直す。
 
 import (
 	"encoding/json"
