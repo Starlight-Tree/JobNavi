@@ -4,7 +4,7 @@
 
 English | [日本語](README.ja.md)
 
-JobNavi (星庭ジョブ) is a fictional job board for botanical gardens on the Moon, in orbital cities and on the planet Zahard (FastAPI, Next.js, Postgres 17, Docker Compose). The operator "Hoshiniwa Works", the place names, the currency "lumi" and all data are made up.
+JobNavi (星庭ジョブ) is a fictional job board for botanical gardens on the Moon, in orbital cities and on the planet Zahard (Go, Next.js, Postgres 17, Docker Compose). The operator "Hoshiniwa Works", the place names, the currency "lumi" and all data are made up.
 
 | Job search (with counts per filter) | Job detail (with images) |
 |---|---|
@@ -24,7 +24,7 @@ JobNavi (星庭ジョブ) is a fictional job board for botanical gardens on the 
 ```mermaid
 flowchart LR
     B[Browser] --> F["Next.js<br/>frontend (:3200)"]
-    F -->|"called from the server side"| A["FastAPI<br/>backend (:8200)"]
+    F -->|"called from the server side"| A["Go API<br/>backend (:8200)"]
     A --> DB[("Postgres 17")]
     A -->|saves images| S[("Storage<br/>folder / Cloudflare R2")]
     B -->|fetches images| S
@@ -44,13 +44,13 @@ docker compose run --rm seed-images   # dummy images
 docker compose up -d --build
 ```
 
-- UI: <http://localhost:3200>, API docs: <http://localhost:8200/docs>
+- UI: <http://localhost:3200>, API health check: <http://localhost:8200/health> (the routes are listed in [docs/development.md](docs/development.md); the FastAPI `/docs` page went away with the Go rewrite, see [docs/go-migration.md](docs/go-migration.md))
 - Stop: `docker compose down`. To delete the DB as well: `docker compose down -v`
 - Dummy accounts (local only): garden `hoshiniwa-garden@example.com`, password `star-garden-demo`, signing in at `/garden/login`. The dummy job seeker `hoshiniwa-user@example.com` has a password too, but the UI offers Google sign-in only. A Google account with the same verified email is linked to it on the first sign-in.
 - Google sign-in needs an OAuth client (type: Web) that you create in Google Cloud Console (it has no CLI or API), with the redirect URI `http://localhost:3200/api/auth/callback/google`. Then register the three values with `scripts/login-secrets.sh <Infisical project ID>` (it prompts for the client ID and secret without echoing them, generates `BETTER_AUTH_SECRET` once, and never overwrites it) and start with `infisical run --projectId <ID> --env dev -- docker compose up -d`. Without Infisical, put `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `BETTER_AUTH_SECRET` (32+ random characters, e.g. `openssl rand -base64 32`) in `.env` (not in Git) and run `docker compose up -d`. Run the `migrate` tool once before using the UI (migration 0004 adds the `auth_` tables); if the UI was used before that, restart the `frontend` container. Without the secrets the login page says Google sign-in is not configured. The secrets go to the UI container (Better Auth); the API gets none.
 - **Never change `BETTER_AUTH_SECRET` once it is set.** It encrypts the JWT signing key in `auth_jwks` and the Google tokens in `auth_account`. After a change everyone looks logged out and the UI log shows `Failed to decrypt private key`; recovering needs the `auth_jwks` rows deleted (ask first). Keep the secret together with the database backup (Infisical).
 
-Tests: `cd backend && pip install -r requirements.txt -r requirements-dev.in && TEST_DATABASE_URL=<Postgres URL> pytest` and `cd frontend && npm ci && npm test && npm run build && npm run typecheck` (run on the host: `npm ci` inside the dev container's working tree would overwrite the host's `node_modules`). Without `TEST_DATABASE_URL`, the tests that need the DB are skipped.
+Tests: `cd backend && TEST_DATABASE_URL=<Postgres URL> go test -tags nodynamic ./...` (Go 1.26 or later) and `cd frontend && npm ci && npm test && npm run build && npm run typecheck` (run on the host: `npm ci` inside the dev container's working tree would overwrite the host's `node_modules`). Without `TEST_DATABASE_URL`, the tests that need the DB are skipped.
 
 ## Documentation
 

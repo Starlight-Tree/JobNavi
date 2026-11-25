@@ -11,6 +11,7 @@
 | 求人・法人の画像の保存の仕組み（オブジェクトストレージ・DB・バックアップ・マイグレーション）。画像生成ジョブの出力先は台帳 | [image-storage.md](image-storage.md) |
 | 資格情報・権限・MCP をプロジェクトごとに分ける方針と、その現状 | [access-separation.md](access-separation.md) |
 | ローカルの開発・テスト・検査・ダミーデータ・CI | [development.md](development.md) |
+| API を Python から Go に置き換えた経緯・範囲・確かめ方・意図して違う点・未確認 | [go-migration.md](go-migration.md) |
 | 求人検索画面の調査の記録（以降の調査は追記） | [ux-research.md](ux-research.md) |
 | 旧システム（PHP）から残す参考 | [legacy-reference.md](legacy-reference.md) |
 | 2026-11-15 の履歴の書き換えと、古いハッシュの対応表 | [history-rewrite.md](history-rewrite.md) |

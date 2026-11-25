@@ -12,7 +12,7 @@ Next.js 16（App Router）、React 19、TypeScript 7、Vitest 5。Node 24（`eng
 | `app/(site)/diagnosis/` | 3 つの質問の診断（`/diagnosis`。ログイン不要）。GET のフォーム（`DiagnosisForm`）で、答えを URL のクエリ（`employment` `area` `occupation`）に入れる。順位づけは `src/lib/diagnosis.ts` の `rank()`（合った条件の数を数えるだけ。AI・学習は使わない）。対象は API の先頭 50 件、結果は上位 6 件 |
 | `app/(site)/@panel/` | 求人の詳細パネル（並行ルート）。一覧と診断の結果のカード（`SelectableCard`）を押すと、同じ URL（`/recruits/ID`）が一覧の右で開く（`(.)recruits/[id]`。インターセプト）。直接開く・再読み込みは全ページ（`recruits/[id]/page.tsx`）。中身は共通の `RecruitDetailView` |
 | `app/(auth)/` | 利用者のログイン（Google だけ。DocuNavi と同じ。はじめてのログインで登録される）。「Google でログイン」は、サーバーアクション（`googleLoginAction`）のフォーム。`/register` は `/login` へ移すだけ。サイドパネルは出さず、上の帯に「← 求人を探す」とテーマの切り替えだけ |
-| `app/api/auth/[...all]/` | Better Auth の入口（Google への行き来・Cookie・JWKS `/api/auth/jwks`）。Next.js の公式の組み込み方。設定が足りないときは 503。設定と DB 接続は `src/lib/auth.ts`（利用者の表は `auth_` 付き。`backend/app/migrations/0004_better_auth.sql`）。API へは、`src/lib/session.ts` の `userToken()` が `auth.api.getToken` で取る短命の JWT を、Bearer で渡す |
+| `app/api/auth/[...all]/` | Better Auth の入口（Google への行き来・Cookie・JWKS `/api/auth/jwks`）。Next.js の公式の組み込み方。設定が足りないときは 503。設定と DB 接続は `src/lib/auth.ts`（利用者の表は `auth_` 付き。`backend/migrations/0004_better_auth.sql`）。API へは、`src/lib/session.ts` の `userToken()` が `auth.api.getToken` で取る短命の JWT を、Bearer で渡す |
 | `app/garden/` | 園。ログイン、ダッシュボード、求人ごとの画像の管理（`recruits/[id]/images`）。サイドパネルは `(site)` と同じ部品（ログイン前は行き先を出さず、アカウントのメニューはテーマだけ） |
 | `src/actions/` | サーバーアクション（`'use server'`）。フォームの受け口で、検証してから API を呼ぶ |
 | `src/lib/` | `api.ts`（API の呼び出し。サーバー側だけ）、`session.ts`（Cookie）、`search.ts`（URL の条件）、`validation.ts` ほか |
@@ -34,7 +34,7 @@ Next.js 16（App Router）、React 19、TypeScript 7、Vitest 5。Node 24（`eng
 - **閲覧の記録は、クライアント部品 `ViewBeacon` が `useEffect` から 1 回だけ、サーバーアクション `recordViewAction`（`src/actions/recruit-events.ts`）を呼ぶ。** 描画のときには呼ばない（プリフェッチ・ボットを数えないため）。全ページとパネルの両方に置く。未ログインは API を呼ばず、失敗は握りつぶす。同じ求人を 30 分以内に何度送っても、API が 1 件にまとめる。
 - **「関連する求人」「あなたへのおすすめ」は付随の表示。** 取れなければ節ごと出さず、画面は壊さない（`src/lib/load-related.ts` は例外を投げず、取れなければ `[]`）。順位づけと文の根拠は [docs/recommendation.md](../docs/recommendation.md)（機械学習は使っていない）。
 - **画面の検証は API の検証の代わりにならない。** `garden-images.ts` の形式・容量の検査は手前の確認で、本当の検査は API。
-- **`public/images/generated/recruits/` の画像を差し替える・生成し直すときは、`backend/app/demo_images.json` の `sha256` も同じ変更で更新する。** 一致しない画像は `seed-images` が使わない。
+- **`public/images/generated/recruits/` の画像を差し替える・生成し直すときは、`backend/demo_images.json` の `sha256` も同じ変更で更新する。** 一致しない画像は `seed-images` が使わない。
 - 画像の一括生成は課金される。実行の前に、枚数と概算費用を示して承認を得る（`--dry-run` は課金なし）。キー（`GEMINI_API_KEY`）は `scripts/generate-images/.env`（Git 管理外）か環境変数で渡し、表示しない。
 - 画面を変えたら、前例（`docs/ux-research.md`）にならって Playwright で確かめる。基準は幅 1280px。390px は横スクロールが出ないことの確認だけ。
 

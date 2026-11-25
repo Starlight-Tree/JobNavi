@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 JobNavi（旧称: 星庭ジョブ。リポジトリ・ディレクトリ・Docker・DB の名前は、すべて jobnavi。旧名 hoshiniwajob への改名は 2026-11-21）。架空の宇宙の植物園・ガーデンの求人サイト（運営は架空の「星庭ワークス」）。データはすべてダミー。
-FastAPI + psycopg3（`backend/`）、Next.js + TypeScript（`frontend/`）、Postgres 17（`db/`）、Docker Compose。入口は [README.md](README.md)（日本語は [README.ja.md](README.ja.md)）、開発・テスト・ダミーデータ・CI は [docs/development.md](docs/development.md)、
+Go（`backend/`。標準ライブラリ + pgx。2026-11 に Python から置き換えた: [docs/go-migration.md](docs/go-migration.md)）、Next.js + TypeScript（`frontend/`）、Postgres 17（`db/`）、Docker Compose。入口は [README.md](README.md)（日本語は [README.ja.md](README.ja.md)）、開発・テスト・ダミーデータ・CI は [docs/development.md](docs/development.md)、
 画像・マイグレーション・バックアップ・R2 の詳細は [docs/image-storage.md](docs/image-storage.md)、画面の調査は [docs/ux-research.md](docs/ux-research.md)、
 資格情報・権限・MCP をプロジェクトごとに分ける方針は [docs/access-separation.md](docs/access-separation.md)。
 **Vertex AI の画像生成ジョブ（デプロイ済みの設定・成功した実行・モデル）の正本は [docs/image-gen-resources.md](docs/image-gen-resources.md)。** 会話の履歴やログを探す前に、これを読む。
@@ -11,9 +11,9 @@ FastAPI + psycopg3（`backend/`）、Next.js + TypeScript（`frontend/`）、Pos
 
 | 目的 | コマンド |
 |---|---|
-| 起動（ホストで） | `docker compose up -d --build`。画面 <http://localhost:3200>、API <http://localhost:8200/docs>。マイグレーションもダミーデータも流さない |
+| 起動（ホストで） | `docker compose up -d --build`。画面 <http://localhost:3200>、API の死活確認 <http://localhost:8200/health>（FastAPI の `/docs` は、Go への置き換えで無くなった）。マイグレーションもダミーデータも流さない |
 | 初めての環境（空の DB） | `docker compose up -d db` → `run --rm migrate` → `run --rm seed` → `run --rm seed-images` → `up -d --build`（README の「Quick start」） |
-| バックエンドのテスト | `cd backend && python -m venv .venv && .venv/bin/pip install -r requirements.txt -r requirements-dev.in`、`TEST_DATABASE_URL=<Postgres の URL> .venv/bin/python -m pytest -q`。**`TEST_DATABASE_URL` が無いと DB のテスト（ほぼ全部）がスキップされる** |
+| バックエンドのテスト | `cd backend && TEST_DATABASE_URL=<Postgres の URL> go test -tags nodynamic -race -count=1 ./...`（Go 1.26 以上）。**`TEST_DATABASE_URL` が無いと DB のテスト（ほぼ全部）がスキップされる**。道具は `docker compose run --rm migrate\|seed\|seed-images\|search-index`、運営用の画像 CLI は `docker compose run --rm api images …`（[docs/go-migration.md](docs/go-migration.md)） |
 | フロントエンドの検査 | `cd frontend && npm ci && npm test && npm run build && npm run typecheck`（`typecheck` は `build` の後。**ホストで。開発コンテナの作業ツリーでは `npm ci` を実行しない**: `.claude/rules/frontend.md`） |
 | 検査（まとめて） | `scripts/verify.sh [段]`（段: backend / frontend / lint / scripts / all）。CI に近い検査で、同じではない（違いはスクリプト冒頭）。流せない段は「未実行」、CI より弱い点は「注記」に出る。終了コードの意味は `scripts/verify.sh` の冒頭。流す前に、`verify.sh`・`scripts/`・テストの変更を `git diff` で見る（`.claude/settings.json` の許可で、確認なしで動く） |
 | 版の整合 | `scripts/check-versions.sh`（Python・Node の版が、各ファイルで揃っているか） |
@@ -23,14 +23,14 @@ FastAPI + psycopg3（`backend/`）、Next.js + TypeScript（`frontend/`）、Pos
 
 | 場所 | 役割 | 版 |
 |---|---|---|
-| `backend/` | API（FastAPI）。認証、求人、園、画像、マイグレーション、seed、運営用 CLI | Python 3.13 |
+| `backend/` | API（Go）。認証、求人、園、画像、マイグレーション、seed、運営用 CLI（同じバイナリ `api` のサブコマンド） | Go 1.26.10 |
 | `frontend/` | 画面（Next.js）。API は画面のサーバー側から呼ぶ。画像の一括生成の道具は `frontend/scripts/generate-images/` | Node 24 |
 | `db/` | 初期スキーマ（`schema.sql`）とマスタ（`seed_codes.sql`）。空のボリュームで初めて起動したときだけ流れる | Postgres 17 |
 | `jobs/image-gen/` | 画像生成の Cloud Run Job のコード（試作。`test_main.py` はあるが、CI には入れていない）。**デプロイ済みのジョブとは別物のことがある。正本は [台帳](docs/image-gen-resources.md)** | Python 3.11（**揃えていない。保留中**） |
 | `.devcontainer/` | 開発コンテナと、Docker のソケットプロキシ | |
 | `backups/` | DB のバックアップ。Git 管理外 | |
 
-版の基準は `.python-version`（3.13）と `.node-version`（24）。各ファイルとの整合は `scripts/check-versions.sh` が確かめる。
+版の基準は `backend/go.mod`（Go 1.26.10）、`.python-version`（Python 3.13。ワークフローの検査と `scripts/` のテスト用）、`.node-version`（Node 24）。各ファイルとの整合は `scripts/check-versions.sh` が確かめる。
 開発コンテナの Node は feature `node:2` の既定で、24 に固定していない。実測は v26.13.1（2026-11-20、このコンテナの `node --version`）。基準の 24 と違うので、コンテナでの `npm` の結果は、ホスト・CI（24）と同じとは限らない。
 
 ## 守ること（コードを書く前に）
@@ -42,7 +42,7 @@ FastAPI + psycopg3（`backend/`）、Next.js + TypeScript（`frontend/`）、Pos
 - **ダミーデータの投入は `DEMO_DATA=allow` を渡した開発・テストの環境だけ。** `seed` と `seed-images` を本番の DB に向けない。Compose の `tools` の道具は `up` で起動しない。
 - **マイグレーションは番号付き SQL を足すだけ。** 適用済みのファイルを書き換えない（sha256 を記録していて、変わると止まる）。`DROP` / `TRUNCATE` は足さない。
   `db/schema.sql` は 0001 の基準で、`baseline_fingerprint.json` と照合される。適用の前に、必ず DB のバックアップを取る（`docs/image-storage.md`）。
-- **`backend/requirements.txt` は直接編集しない。** `requirements.in` を直して作り直す。
+- **`backend/go.sum` は直接編集しない。** `go mod tidy` で作り直す。依存を足すときは、先に確認する。ビルドは `-tags nodynamic`（WebP の共有ライブラリを探さない）。
 - **エラー本文は固定の文。** 例外の文字列やサーバーのパスを API の応答に含めない。
 - **権限は API が毎回確認する。** 園は、自分に紐づく求人と画像だけを扱える。他の園のものは 404（存在も分からない）。利用者と園は、アカウントもセッションも Cookie も別。
 - **実 API・課金・外部への書き込みは、事前に承認を得る。** 画像の一括生成（Gemini の Batch API）、R2 への書き込み、本番の DB・デプロイ。件数・回数・概算費用を先に示す。

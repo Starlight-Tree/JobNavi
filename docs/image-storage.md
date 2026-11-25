@@ -3,7 +3,7 @@
 求人と法人の画像を、**本体はオブジェクトストレージ、対応は DB、コードと一覧は Git** に分けて管理する。画像が増えても、コードの修正・再デプロイ・Git への画像の追加は要らない。
 
 ```text
-ブラウザー ── 画面（Next.js）── API（FastAPI）── DB（images / recruit_images / garden_images）
+ブラウザー ── 画面（Next.js）── API（Go）── DB（images / recruit_images / garden_images）
                  │                    └── 保存先（1 か所。S3 では 1 バケット）
                  └── next/image ── 公開 URL（CDN の独自ドメイン。ローカル開発は /media）
 ```
@@ -14,9 +14,9 @@
 - **画像の状態**（`images.status`）: `uploading`（登録の途中）→ `approved`（公開中）。ほかに `rejected`（運営が取り下げた）、`deleted`（消した。行は記録として残す）。
   `approved` という名前は DB の制約に合わせて残してあり、意味は「公開中」。旧い値の `pending` / `publishing` は、今は作られない。
 - **公開 API が返すのは `approved` だけ。**
-- **運営ができるのは、公開後の取り下げだけ**（`python -m app.images_cli reject`）。DB を `rejected` にして実体を消す。園の API からは呼べない。
-- **登録は 1 つの関数を通る**（`app/image_service.py`）: 園のアップロード、運営の CLI、ダミー画像の seed が同じ検証・登録を使う。
-  検証は、形式（JPEG・PNG・WebP のみ。SVG・GIF・アニメーションは不可）、容量（既定 5MB）、寸法（短辺 200px 以上、4000 万画素まで）、実データ（Pillow で読み込めること）。
+- **運営ができるのは、公開後の取り下げだけ**（`api images reject`）。DB を `rejected` にして実体を消す。園の API からは呼べない。
+- **登録は 1 つの関数を通る**（`backend/image_service.go`）: 園のアップロード、運営の CLI、ダミー画像の seed が同じ検証・登録を使う。
+  検証は、形式（JPEG・PNG・WebP のみ。SVG・GIF・アニメーションは不可）、容量（既定 5MB）、寸法（短辺 200px 以上、4000 万画素まで）、実データ（Go の標準ライブラリと WebP のライブラリで読み込めること）。
   配信用には、EXIF・GPS・ICC・テキストを除いて再エンコードしたものを保存する（向きは画素に反映する。長辺は 2400px まで）。元の画像は残さない。
   **アップロードは API を通す**（ブラウザーから保存先へ直接は送らない）。署名付き URL は使わない。
 - **保存キーは `images/<uuid>.<拡張子>`。** 画像の更新は、同じキーに上書きせず、新しい画像として登録して DB の参照を切り替える（保存部品は、同じキーへの別の内容の書き込みを拒否する）。
@@ -49,14 +49,14 @@ s3 で必要な設定が 1 つでも欠けると、API は起動に失敗する�
 **園（画面）**: <http://localhost:3200/garden> にログイン →「求人の画像」から求人を選び、画像をドロップ（または「ファイルを選ぶ」）→ プレビューを確認 →「公開する」。
 並べ替え・ヒーローにする・削除もここでできる。削除は、その場で消え、元に戻せない。
 
-**運営（CLI。DB と保存先の認証情報を持つ人だけ）**: コンテナの中で実行する（例: `docker compose run --rm api python -m app.images_cli list`）。
+**運営（CLI。DB と保存先の認証情報を持つ人だけ）**: コンテナの中で実行する（例: `docker compose run --rm api images list`）。
 
 ```bash
-python -m app.images_cli list [--status rejected]
-python -m app.images_cli register FILE --alt "説明" --recruit-id 5 [--hero]   # 登録した時点で公開される
-python -m app.images_cli reject <画像ID>       # 公開後の取り下げ（実体も消す）。承認の操作ではない
-python -m app.images_cli reconcile [--stuck-hours 1]   # 食い違いの報告だけ。何も変えない
-python -m app.images_cli formfile              # recruits.formfile に値のある求人の一覧
+api images list [--status rejected]
+api images register FILE --alt "説明" --recruit-id 5 [--hero]   # 登録した時点で公開される
+api images reject <画像ID>       # 公開後の取り下げ（実体も消す）。承認の操作ではない
+api images reconcile [--stuck-hours 1]   # 食い違いの報告だけ。何も変えない
+api images formfile              # recruits.formfile に値のある求人の一覧
 ```
 
 **画像を足しても、コードの変更・再デプロイは要らない**（園の画面か CLI で登録すれば、DB の関連だけで表示が変わる）。
@@ -71,14 +71,14 @@ python -m app.images_cli formfile              # recruits.formfile に値のあ�
 - **`reconcile` は報告だけで、何も変えない**（削除の実行や定期実行は無い）。報告するのは、`stuck_uploading`（登録が途中で止まった）、`orphan_objects`（DB に行の無い実体）、
   `stray_objects`（取り下げ・削除済みなのに残っている実体）、`unreferenced`（どこからも使われていない公開中の画像）。新しいもの（10 分以内。`unreferenced` と `stuck` は 1 時間以内）は、登録の最中かもしれないので数えない。
 
-## マイグレーション（`app/migrate.py`）
+## マイグレーション（`backend/migrate.go`）
 
-番号付き SQL（`app/migrations/NNNN_名前.sql`）と小さな実行器。API は生の psycopg3 で SQLAlchemy を使っていないため、Alembic ではなくこの方式にした（Alembic の利点であるモデルとの差分生成が使えない）。
+番号付き SQL（`backend/migrations/NNNN_名前.sql`。バイナリに埋め込む）と小さな実行器（`api migrate`）。API は生の SQL で ORM を使っていないため、Alembic ではなくこの方式にした（Alembic の利点であるモデルとの差分生成が使えない）。
 
 - `0001` は初期スキーマ（`db/schema.sql` と `db/seed_codes.sql`。Postgres の初回起動で流れる）。実行器はこれを流さず、**表・列・制約・索引・マスタの件数が `baseline_fingerprint.json` と一致したときだけ**「適用済み」と記録する。1 つでも違えば、何も記録せず止まる。
 - 適用済みのファイルは sha256 を記録し、書き換えを検出して止まる。直すときは新しい番号のファイルを足す。
 - 1 ファイル 1 トランザクション（`lock_timeout` 5 秒）。失敗したら何も変えない。同時実行はアドバイザリーロックで防ぐ。
-- 確認: `python -m app.migrate --status`（読むだけ）/ `--dry-run`（適用予定と事前検査だけ）/ 引数なしで適用。
+- 確認: `api migrate --status`（読むだけ）/ `--dry-run`（適用予定と事前検査だけ）/ 引数なしで適用。
 - `0002_images.sql` は新しい表の作成と、`recruits.demo_key`（NULL 可・既定値なしの列）の追加だけ。**既存のデータ・ID・`formfile` は変えない。** `recruits` への ALTER は一瞬の排他ロック。DROP・TRUNCATE・リセットは含まない。
 - `recruits.formfile`（「画像ファイル」の列）は残してある。値のある求人は `formfile` で確認できる（ダミーデータでは 0 件の想定）。値と使用箇所の確認が済んでから、別のマイグレーションで外す。
 
@@ -106,14 +106,14 @@ docker compose exec -T db pg_restore -U jobnavi --no-owner -d jobnavi_restore < 
 
 ## 新しい環境（ダミー画像の復元）
 
-通常の `docker compose up` は、マイグレーションもダミーデータも流さない。新しい環境では、README の「初めての環境」の順に、`migrate` → `seed` → `seed-images` を 1 回ずつ実行する（いずれも `profile: tools` の道具で、`up` では起動しない。`seed` と `seed-images` は `DEMO_DATA=allow` が無いと実行を拒否する）。ダミー画像の元ファイルは `frontend/public/images/generated/recruits/`（Git 管理。マニフェストは `backend/app/demo_images.json`。元ファイルの sha256 が一致しなければ使わない）。
+通常の `docker compose up` は、マイグレーションもダミーデータも流さない。新しい環境では、README の「初めての環境」の順に、`migrate` → `seed` → `seed-images` を 1 回ずつ実行する（いずれも `profile: tools` の道具で、`up` では起動しない。`seed` と `seed-images` は `DEMO_DATA=allow` が無いと実行を拒否する）。ダミー画像の元ファイルは `frontend/public/images/generated/recruits/`（Git 管理。マニフェストは `backend/demo_images.json`。元ファイルの sha256 が一致しなければ使わない）。
 マニフェストは 24 件（今ある求人に結ぶ 13 件と、まだ無い求人の分 11 件）。求人が DB に無い画像は、登録せずに知らせる（どの求人にも結ばれない画像を作らないため）。求人ができてから `seed-images` を再実行すると、その分が登録される。求人 1 と 7 は 2 枚、植物医（予定）は 3 枚で、ヒーローは位置 0 の 1 枚。
 同じことは単独でもできる（何度実行しても、画像も関連も増えない）。
 
 ```bash
 docker compose run --rm seed-images
 # 画像の置き場（https。マニフェストの file 名を末尾に足して取る）から復元するとき
-docker compose run --rm seed-images python -m app.seed_images --source-url https://<配信ドメイン>/demo/
+docker compose run --rm seed-images seed-images --source-url https://<配信ドメイン>/demo/
 ```
 
 ## Cloudflare R2 を使うとき
@@ -137,7 +137,7 @@ DNS・独自ドメインは未設定。
 
 ## 未実装・未確認
 
-- R2 実機での読み書き・公開 URL での配信（`r2.dev`）は確認済み（2026-11-01）。**未確認**: CDN のキャッシュ、独自ドメイン、WAF・レート制限（本番化のときに設定する）。S3 互換の部分の自動テストは、モックの S3（moto）のまま。
+- R2 実機での読み書き・公開 URL での配信（`r2.dev`）は確認済み（2026-11-01）。**未確認**: CDN のキャッシュ、独自ドメイン、WAF・レート制限（本番化のときに設定する）。S3 互換の部分の自動テストは、偽の S3（`storage_test.go`。署名は botocore と一致することを `s3sign_test.go` で確かめた）のまま。
 - 法人画像の画面と公開ページでの表示。
 - 食い違いの報告（`reconcile`）の定期実行（今は手で実行する報告だけ）。ストレージの保護・復旧の運用（R2 側）。
 - 画像のウイルス・不適切な内容の検査（形式・寸法・実データの検証だけ）。承認が無いので、公開後の取り下げ（運営の CLI）だけが安全弁になる。

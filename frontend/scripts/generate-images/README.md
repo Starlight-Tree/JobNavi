@@ -38,7 +38,7 @@ npm run images:create-batch -- --all
 
 `download-results` は、同じ名前のファイルがあっても確かめずに上書きする。`--all` で上書きされるのは、今ある画像（直下の 2 枚と `recruits/` の 24 枚）のうち、返ってきた形式が JPEG のもの。
 保存名は `outputFileName` の拡張子を、返ってきた形式の拡張子に替えて決める。`outputFileName` は `.png`、Git にある実ファイルはすべて `.jpg` なので、PNG が返ると `.jpg` が残ったまま同名の `.png` が増える（どちらが返るかは未確認）。
-`recruits/` の画像を生成し直したら、`backend/app/demo_images.json` の `sha256` も同じ変更で更新する（[frontend/CLAUDE.md](../../CLAUDE.md)）。一致しない画像は `seed-images` が使わない。
+`recruits/` の画像を生成し直したら、`backend/demo_images.json` の `sha256` も同じ変更で更新する（[frontend/CLAUDE.md](../../CLAUDE.md)）。一致しない画像は `seed-images` が使わない。
 
 作成したジョブ名は `.last-batch-job.txt`（Git 管理外）に残り、`check-batch` と `download-results` が読む。
 

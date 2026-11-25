@@ -4,7 +4,7 @@
 
 [English](README.md) | 日本語
 
-月面・軌道都市・惑星ザーハードの植物園とガーデンの求人を探せる、架空の求人サイト「JobNavi」です（FastAPI、Next.js、Postgres 17、Docker Compose）。運営の「星庭ワークス」、地名、通貨「ルミ」、データはすべて架空です。
+月面・軌道都市・惑星ザーハードの植物園とガーデンの求人を探せる、架空の求人サイト「JobNavi」です（Go、Next.js、Postgres 17、Docker Compose）。運営の「星庭ワークス」、地名、通貨「ルミ」、データはすべて架空です。
 
 | 求人検索（条件ごとの件数つき） | 求人の詳細（画像つき） |
 |---|---|
@@ -24,7 +24,7 @@
 ```mermaid
 flowchart LR
     B[ブラウザー] --> F["Next.js<br/>frontend（:3200）"]
-    F -->|"サーバー側から呼ぶ"| A["FastAPI<br/>backend（:8200）"]
+    F -->|"サーバー側から呼ぶ"| A["Go の API<br/>backend（:8200）"]
     A --> DB[("Postgres 17")]
     A -->|画像の保存| S[("ストレージ<br/>フォルダー / Cloudflare R2")]
     B -->|画像の取得| S
@@ -44,13 +44,13 @@ docker compose run --rm seed-images   # ダミーの画像
 docker compose up -d --build
 ```
 
-- 画面: <http://localhost:3200>、API の文書: <http://localhost:8200/docs>
+- 画面: <http://localhost:3200>、API の死活確認: <http://localhost:8200/health>（経路の一覧は [docs/development.md](docs/development.md)。FastAPI の `/docs` は、Go への置き換えで無くなった。[docs/go-migration.md](docs/go-migration.md)）
 - 止める: `docker compose down`。DB ごと消すなら `docker compose down -v`
 - ダミーのアカウント（ローカル専用）: 園 `hoshiniwa-garden@example.com`、パスワード `star-garden-demo`、`/garden/login` から入ります。ダミーの求職者 `hoshiniwa-user@example.com` にもパスワードはありますが、画面は Google でのログインだけです。確認済みの同じメールアドレスの Google アカウントで、はじめてログインしたとき、このアカウントに結ばれます。
 - Google でのログインには、Google Cloud Console で作る OAuth クライアント（種類: ウェブ。コマンドや API はありません）が要ります。リダイレクト URI は `http://localhost:3200/api/auth/callback/google` です。そのあと、`scripts/login-secrets.sh <Infisical のプロジェクト ID>` で 3 つの値を登録します（クライアント ID とシークレットは、画面に出さずに入力します。`BETTER_AUTH_SECRET` はその場で 1 回だけ作り、作り直しません）。起動は `infisical run --projectId <プロジェクト ID> --env dev -- docker compose up -d` です。Infisical を使わないときは、`GOOGLE_CLIENT_ID`・`GOOGLE_CLIENT_SECRET`・`BETTER_AUTH_SECRET`（32 文字以上のランダムな値。例: `openssl rand -base64 32`）を `.env`（Git に入れない）に書き、`docker compose up -d` します。画面を使う前に `migrate`（マイグレーション 0004 が `auth_` の表を足します）を 1 回流してください。先に画面を使ったときは、`frontend` コンテナを再起動します。無いときは、ログイン画面に「Google でのログインは、まだ設定されていません」と出ます。シークレットは画面のコンテナ（Better Auth）が持ち、API には渡しません。
 - **`BETTER_AUTH_SECRET` は、決めたら変えません。** DB の `auth_jwks` の署名鍵と、`auth_account` の Google のトークンを暗号化しているためです。変えると、全員がログアウトに見え、画面のログに `Failed to decrypt private key` と出ます。直すには `auth_jwks` の行を消す必要があります（消す前に確認します）。DB のバックアップと一緒に、Infisical で持ちます。
 
-テスト: `cd backend && pip install -r requirements.txt -r requirements-dev.in && TEST_DATABASE_URL=<Postgres の URL> pytest` と `cd frontend && npm ci && npm test && npm run build && npm run typecheck`（ホストで実行します。開発コンテナの作業ツリーで `npm ci` すると、ホストの `node_modules` を上書きすることがあります）。`TEST_DATABASE_URL` が無いと、DB を使うテストは飛ばされます。
+テスト: `cd backend && TEST_DATABASE_URL=<Postgres の URL> go test -tags nodynamic ./...`（Go 1.26 以上）と `cd frontend && npm ci && npm test && npm run build && npm run typecheck`（ホストで実行します。開発コンテナの作業ツリーで `npm ci` すると、ホストの `node_modules` を上書きすることがあります）。`TEST_DATABASE_URL` が無いと、DB を使うテストは飛ばされます。
 
 ## ドキュメント
 
