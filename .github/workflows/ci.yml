@@ -2,7 +2,7 @@ name: CI
 
 # テストとビルドだけを行う。デプロイは含まない。外部の API（Gemini・Cloudflare R2 など）は呼ばない。
 # アクションは、改ざんされたタグを掴まないよう、コミット SHA で固定している（コメントは対応するタグ）。
-# Python と Node の版は、.python-version と .node-version から読む（scripts/check-versions.sh が各ファイルとの整合を確かめる）。
+# Go の版は backend/go.mod、Python（ワークフローの検査用）と Node の版は、.python-version と .node-version から読む（scripts/check-versions.sh が各ファイルとの整合を確かめる）。
 on:
   push:
     branches: [main]
@@ -18,7 +18,7 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend tests (Python, Postgres 17)
+    name: Backend tests (Go, Postgres 17)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # DB を使うテスト（ほぼ全部）のための、使い捨ての Postgres。README と同じ 17。
@@ -36,7 +36,7 @@ jobs:
           --health-timeout 5s
           --health-retries 15
     env:
-      # backend/tests/conftest.py は、この URL で接続して、テスト用の DB を作り直す。無いと DB のテストは静かにスキップされる。
+      # backend/testutil_test.go は、この URL で接続して、テスト用の DB（jobnavi_go_*）を作る。無いと DB のテストはスキップされる。
       TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
     defaults:
       run:
@@ -45,16 +45,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false  # 後続のステップで git の認証は使わない
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
-          python-version-file: .python-version
-          cache: pip
-          cache-dependency-path: |
-            backend/requirements.txt
-            backend/requirements-dev.in
-      - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.in
-      # test_migrate.py のバックアップ・復旧のテストは /usr/lib/postgresql/17/bin の pg_dump / pg_restore を使う。
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      # TestBackupAndRestoreRoundtrip は /usr/lib/postgresql/17/bin の pg_dump / pg_restore を使う。
       # ランナーには 17 のクライアントが無く、無いとそのテストが飛ばされる。サービスの Postgres と同じ 17 を入れる。
       # 公式の設定スクリプトがあればそれを使い、無ければ PGDG の apt リポジトリを手で足す。
       - name: Install the Postgres 17 client
@@ -78,16 +73,28 @@ jobs:
             test -x "/usr/lib/postgresql/17/bin/${tool}"
           done
           /usr/lib/postgresql/17/bin/pg_dump --version
-      # 画像は moto（偽の S3）とテスト用に作ったファイルで確かめる。外部のサービスは呼ばない。
-      - name: Run pytest
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt で整えていないファイル:" >&2
+            echo "$unformatted" >&2
+            exit 1
+          fi
+      # -tags nodynamic: WebP は、共有ライブラリを探さず、組み込みの libwebp だけを使う（本番のイメージと同じ）
+      - name: go vet
+        run: go vet -tags nodynamic ./...
+      # 画像は、テスト用に作ったファイルと、偽の S3・偽の Meilisearch で確かめる。外部のサービスは呼ばない。
+      - name: Run go test
         run: |
           set -o pipefail
-          python -m pytest -q -rs | tee pytest.log
+          go test -tags nodynamic -race -count=1 -v ./... | tee gotest.log
       # TEST_DATABASE_URL の綴りがずれたり、pg_dump が無かったりすると、テストはスキップされたまま green になる。スキップが 1 件でもあれば落とす。
       - name: No test may be skipped
         run: |
-          if grep -qiE '(^|[^a-z])skipped' pytest.log; then
-            echo "スキップされたテストがある。pytest.log の SKIPPED の行で理由を確かめる（DB の設定、pg_dump の有無など）" >&2
+          if grep -qE '^[[:space:]]*--- SKIP' gotest.log; then
+            echo "スキップされたテストがある。gotest.log の SKIP の行で理由を確かめる（DB の設定、pg_dump の有無など）" >&2
+            grep -E '^[[:space:]]*--- SKIP' gotest.log >&2
             exit 1
           fi
 
@@ -109,9 +116,14 @@ jobs:
           tags: jobnavi-api:ci
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
-      # DB が無いと API は起動しない（接続プールを開くため）ので、起動はしない。固定した依存がイメージの中で読み込めることだけ確かめる。
-      - name: Import the app inside the image
-        run: docker run --rm jobnavi-api:ci python -c "import app.main"
+      # DB が無いと API は起動しない（接続プールを開くため）ので、起動はしない。イメージの中のバイナリが動くこと（設定が無いと、固定の文で止まる）だけ確かめる。
+      - name: Run the binary inside the image
+        run: |
+          set +e
+          out="$(docker run --rm jobnavi-api:ci migrate 2>&1)"
+          code=$?
+          echo "$out"
+          [ "$code" -eq 1 ] && grep -q 'DATABASE_URL が未設定です' <<<"$out"
       # ルートの docker-compose.yml の構文と、環境変数の既定値を確かめる（起動はしない。.env は不要）
       - name: Validate docker-compose.yml
         run: docker compose config --quiet

@@ -1,8 +1,8 @@
-# jobnavi のローカル開発用（Postgres 17 + FastAPI + Next.js）。
+# jobnavi のローカル開発用（Postgres 17 + Go の API + Next.js）。
 #   docker compose up -d --build    # 起動（マイグレーションもダミーデータも流さない）
 #   初めての環境は、先に README の「Quick start」の手順（db → migrate → seed → seed-images）を実行する
 #   http://localhost:3200            # 画面（求人検索）
-#   http://localhost:8200/docs       # API の仕様（FastAPI の自動文書）
+#   http://localhost:8200/health     # API の死活確認（FastAPI の /docs は、Go への置き換えで無くなった。経路は docs/development.md）
 # 他のローカルのサービスと同時に動かせるよう、ポートは 3200 / 8200 にしてある。
 name: jobnavi
 
@@ -42,7 +42,7 @@ services:
     build: ./backend
     container_name: jobnavi-migrate
     profiles: ["tools"]
-    command: ["python", "-m", "app.migrate"]
+    command: ["migrate"]
     environment:
       DATABASE_URL: &database_url "postgresql://jobnavi:${LOCAL_DB_PASSWORD:-jobnavi-local}@db:5432/jobnavi"
     depends_on:
@@ -60,7 +60,7 @@ services:
     labels:
       local.ui.group: "App-JobNavi"
     profiles: ["tools"]
-    command: ["python", "-m", "app.seed_demo"]
+    command: ["seed"]
     environment:
       DEMO_DATA: allow   # この値が無いと、seed_demo は実行を拒否する（本番の DB に誤って入れないため）
       DATABASE_URL: *database_url
@@ -76,7 +76,7 @@ services:
     build: ./backend
     container_name: jobnavi-seed-images
     profiles: ["tools"]
-    command: ["python", "-m", "app.seed_images", "--source-dir", "/demo-images"]
+    command: ["seed-images", "--source-dir", "/demo-images"]
     environment:
       DEMO_DATA: allow
       # 画像の保存。ここは開発用のフォルダー（名前付きボリューム dev-media。消してよい）。本番は s3（Cloudflare R2）にする。docs/image-storage.md
@@ -127,7 +127,7 @@ services:
     labels:
       local.ui.group: "App-JobNavi"
     profiles: ["tools"]
-    command: ["python", "-m", "app.search_index"]
+    command: ["search-index"]
     environment:
       DATABASE_URL: *database_url
       MEILI_URL: "http://meilisearch:7700"
@@ -145,7 +145,7 @@ services:
     # 表示用ラベル
     labels:
       local.ui.group: "App-JobNavi"
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload", "--reload-dir", "/code/app"]
+    # 引数なしは API の起動（イメージの ENTRYPOINT が /api）。コードを変えたら `docker compose up -d --build api`（Python のときの --reload は無い）
     environment:
       # 画像の保存。既定は開発用のフォルダー（名前付きボリューム dev-media。消してよい）。R2（s3）へ切り替えるときだけ、.env（Git 管理外）に値を書く。docs/image-storage.md
       STORAGE_BACKEND: "${STORAGE_BACKEND:-local}"
@@ -162,14 +162,11 @@ services:
       AUTH_BASE_URL: "${BETTER_AUTH_URL:-http://localhost:3200}"
       AUTH_JWKS_URL: "http://frontend:3000/api/auth/jwks"
       AUTH_AUDIENCE: "jobnavi"
-      # ホスト↔コンテナ間のボリュームでファイル変更通知が届かない環境（Docker Desktop 等）向け
-      WATCHFILES_FORCE_POLLING: "true"
       # 検索エンジン（任意）。既定は Postgres の検索。meilisearch にすると、キーワード（q）の候補を Meilisearch から引く（届かない・結果が多すぎるときは Postgres に戻る）
       SEARCH_ENGINE: "${SEARCH_ENGINE:-postgres}"
       MEILI_URL: "http://meilisearch:7700"
       MEILI_API_KEY: "${MEILI_MASTER_KEY:-jobnavi-local-meili-key}"
     volumes:
-      - ./backend/app:/code/app
       - dev-media:/data/media
     ports:
       - "127.0.0.1:8200:8000"
@@ -180,7 +177,7 @@ services:
       - frontend-net
       - backend-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "/api", "healthcheck"]
       interval: 5s
       timeout: 3s
       retries: 10

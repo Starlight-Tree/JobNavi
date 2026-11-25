@@ -5,6 +5,9 @@ tsconfig.tsbuildinfo
 .venv/
 __pycache__/
 .pytest_cache/
+
+# Go の API の、差分テスト用の作業バイナリ（docs/go-migration.md）
+.cmp-api
 .ruff_cache/
 
 # 認証情報・環境変数

@@ -1,4 +1,4 @@
-# E2E 用の使い捨てスタック（Postgres 17 + FastAPI + Next.js（next build → next start）+ Playwright）。ホストには何も公開しない。
+# E2E 用の使い捨てスタック（Postgres 17 + Go の API + Next.js（next build → next start）+ Playwright）。ホストには何も公開しない。
 # 流し方は e2e/run.sh（毎回の乱数の秘密を作り、終わったら down -v で全部消す）。直接流さない（E2E_* の値が要る）。
 # 開発スタック（jobnavi。3200・8200・名前付きボリューム）とは、名前もネットワークも別。container_name は付けない（プロジェクト名 jobnavi-e2e で区別する）。
 # コマンドは常に: docker compose -p jobnavi-e2e -f e2e/compose.yml …
@@ -36,7 +36,7 @@ services:
   migrate:
     <<: *backend
     profiles: ["tools"]
-    command: ["python", "-m", "app.migrate"]
+    command: ["migrate"]
     environment:
       DATABASE_URL: *database_url
     depends_on:
@@ -47,19 +47,18 @@ services:
   seed:
     <<: *backend
     profiles: ["tools"]
-    command: ["python", "-m", "app.seed_demo"]
+    command: ["seed"]
     environment:
-      DEMO_DATA: allow   # この値が無いと、seed_demo は実行を拒否する
+      DEMO_DATA: allow   # この値が無いと、seed は実行を拒否する
       DATABASE_URL: *database_url
     depends_on:
       db:
         condition: service_healthy
     restart: "no"
 
-  # --reload なし。JWT の iss は AUTH_BASE_URL（= E2E_ORIGIN。画面の BETTER_AUTH_URL と同じ値）、鍵は web の JWKS から取る
+  # JWT の iss は AUTH_BASE_URL（= E2E_ORIGIN。画面の BETTER_AUTH_URL と同じ値）、鍵は web の JWKS から取る
   api:
     <<: *backend
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       DATABASE_URL: *database_url
       AUTH_BASE_URL: "${E2E_ORIGIN:?}"
@@ -69,14 +68,14 @@ services:
       STORAGE_LOCAL_DIR: /data/media
       IMAGE_PUBLIC_BASE_URL: /media
       CORS_ORIGINS: "${E2E_ORIGIN:?}"
-    # app ユーザー（uid 10001）が書けるようにする。中身は消えてよい
+    # イメージの実行ユーザー（uid 10001）が書けるようにする。中身は消えてよい
     tmpfs:
       - /data/media:uid=10001,gid=10001
     depends_on:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "/api", "healthcheck"]
       interval: 3s
       timeout: 3s
       retries: 20

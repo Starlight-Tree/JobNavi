@@ -4,25 +4,25 @@
 #   scripts/verify.sh [backend|frontend|lint|scripts|all]...     （引数なし = all。複数指定できる）
 #
 # 段（CI のジョブとの対応）:
-#   backend   CI の backend ジョブ。pytest（直列。CI と同じ `-q -rs`）と、スキップが 1 件でもあれば落とす検査
+#   backend   CI の backend ジョブ。gofmt・go vet・go test（CI と同じ `-tags nodynamic -race -count=1 -v`）と、スキップが 1 件でもあれば落とす検査
 #   frontend  CI の frontend ジョブ。npm test → build → typecheck（この順。typecheck は build の後）
 #   lint      CI の workflow-lint ジョブ（版の整合・actionlint・zizmor）と、backend-image ジョブの compose の構文検査
 #   scripts   scripts/ のテスト。CI に入っていない（このスクリプトだけが流す）
 #
 # CI と違う点（主なもの。合格しても「CI と同じ」とは言えない）:
-#   - 依存の導入（pip install・npm ci）、PG 17 クライアントの導入、backend イメージのビルドと「イメージの中で import する」検査はしない。
-#     frontend/node_modules と backend/.venv は先に用意する（この作業ツリーで npm ci は実行しない: .claude/rules/frontend.md）。
-#   - Node と Python の版: CI は .node-version（24）と .python-version（3.13）。ここが違えば、注記に出す（engines は 26 以上も許す）。
+#   - 依存の導入（npm ci）、PG 17 クライアントの導入、backend イメージのビルドと「イメージの中でバイナリを動かす」検査はしない。
+#     frontend/node_modules は先に用意する（この作業ツリーで npm ci は実行しない: .claude/rules/frontend.md）。Go のモジュールは go が取る。
+#   - Node・Go の版: CI は .node-version（24）と backend/go.mod。ここが違えば、注記に出す（engines は 26 以上も許す）。
 #     Postgres サーバーの版（CI は 17）は見ない。TEST_DATABASE_URL の先が localhost でも、ssh のトンネル越しかどうかは見分けられない。
 #   - frontend の npm test は CI=true 付き（CI と同じ。it.only の残りを落とす）。build と typecheck には付けない。
-#   - backend の skipped 検査は、CI と同じく pytest の標準出力だけを見る（標準エラーは見ない）。
+#   - backend の skipped 検査は、CI と同じく go test の標準出力だけを見る（標準エラーは見ない）。
 #   - lint: ツールの版は固定していない（CI は requirements-lint.txt）。actionlint は shellcheck があれば run: の中も検査する。
 #     zizmor は、GH_TOKEN が無いと固定 SHA の照合が CI より弱い。走査する範囲（node_modules など）も、CI のクリーンなチェックアウトと違いうる。
 #   - docker compose config は、CI と同じに .env を読まない（--env-file /dev/null）。
 #
 # 副作用: 追跡ファイルは変えない（変わったら注記する。frontend/next-env.d.ts は build が書き換えるので、終了時に戻す）。
-#   書くもの: テスト用 DB の作り直し（hj_test・hj_seed・hj_mig_*。CI と同じ。DROP DATABASE IF EXISTS → CREATE なので、
-#   TEST_DATABASE_URL は必ずテスト用のサーバーに向ける）、frontend/.next・tsconfig.tsbuildinfo・テストのキャッシュ（Git の管理外）、
+#   書くもの: テスト用 DB の作り直し（jobnavi_go_*。CI と同じ。DROP DATABASE IF EXISTS → CREATE なので、
+#   TEST_DATABASE_URL は必ずテスト用のサーバーに向ける。Go のテストは jobnavi_go_* の名前で作って消す）、frontend/.next・tsconfig.tsbuildinfo・テストのキャッシュ（Git の管理外）、
 #   /tmp の一時ファイル（テストが作る /tmp/hj-test-media-* は残ることがある）。デプロイ・実 API・R2・本番の DB には触れない。
 # 流せない段（DB・venv・PG 17 クライアント・node_modules・ツールが無い）は「未実行」と出す。合格とは数えない。
 # CI より弱い点（Node の版、GH_TOKEN が無い、shellcheck が無い、追跡ファイルが変わった）は「注記」に出す。
@@ -30,7 +30,7 @@
 #
 # 環境変数:
 #   TEST_DATABASE_URL  backend に必須（Postgres 17）。ホストが localhost / 127.0.0.1 / ::1 でなければ流さない。URL に `,` `host=` `hostaddr=` を含むもの（接続先が変わりうる）も流さない（VERIFY_ALLOW_REMOTE_DB=1 で解除）
-#   PYTHON             Python の実行ファイル（既定は backend/.venv/bin/python。相対パスは、呼んだ場所からの相対）
+#   PYTHON             Python の実行ファイル（scripts 段のテスト用。既定は python3。pytest が要る。相対パスは、呼んだ場所からの相対）
 #   GH_TOKEN           zizmor が、固定 SHA の照合に使う（CI は github.token を渡す）
 # Next.js 16.4.3 の build は、エージェントが流すと、既知の脆弱性の勧告に該当する間は止まることがある
 #   （node_modules/next/dist/lib/upgrade/nudge.js。2026-11-20 に確認。勧告の内容は未確認）。
@@ -66,7 +66,7 @@ want() {
 
 export PYTHONDONTWRITEBYTECODE=1
 
-py_req="${PYTHON:-$root/backend/.venv/bin/python}"
+py_req="${PYTHON:-python3}"
 if [[ "$py_req" == */* && "$py_req" != /* ]]; then py_req="$caller_pwd/$py_req"; fi
 py="$(command -v "$py_req" 2>/dev/null || true)" # 絶対パスになる。venv の python は symlink なので、realpath にはしない
 if [[ -n "$py" ]]; then export PYTHON="$py"; fi # 子のスクリプト（inspect-image-gen.sh）が、同じ Python を使えるように
@@ -148,16 +148,26 @@ db_host() {
 }
 
 # --- backend --------------------------------------------------------------------------------
-# CI の「Run pytest」と「No test may be skipped」。判定の正規表現は CI と同じ。入力は標準出力だけ（CI の pytest.log と同じ）。
-backend_pytest() {
+# CI の「gofmt」「go vet」「Run go test」「No test may be skipped」。判定の正規表現は CI と同じ。入力は標準出力だけ（CI の gotest.log と同じ）。
+backend_gofmt() {
+  local out
+  out="$(cd backend && gofmt -l .)"
+  if [[ -n "$out" ]]; then
+    printf 'gofmt で整えていないファイル:\n%s\n' "$out" >&2
+    return 1
+  fi
+}
+
+backend_gotest() {
   local out rc
-  out="$(cd backend && "$py" -m pytest -q -rs 2>"$tmp/pytest.err")"
+  out="$(cd backend && go test -tags nodynamic -race -count=1 -v ./... 2>"$tmp/gotest.err")"
   rc=$?
-  printf '%s\n' "$out"
-  if [[ -s "$tmp/pytest.err" ]]; then cat "$tmp/pytest.err" >&2; fi
+  printf '%s\n' "$out" | tail -n 80
+  if [[ -s "$tmp/gotest.err" ]]; then cat "$tmp/gotest.err" >&2; fi
   [[ $rc -eq 0 ]] || return "$rc"
-  if grep -qiE '(^|[^a-z])skipped' <<<"$out"; then
-    echo "スキップされたテストがある。SKIPPED の行で理由を確かめる（DB の設定、pg_dump の有無など）" >&2
+  if grep -qE '^[[:space:]]*--- SKIP' <<<"$out"; then
+    echo "スキップされたテストがある。SKIP の行で理由を確かめる（DB の設定、pg_dump の有無など）" >&2
+    grep -E '^[[:space:]]*--- SKIP' <<<"$out" >&2
     return 1
   fi
 }
@@ -165,13 +175,11 @@ backend_pytest() {
 if want backend; then
   pg_bin=/usr/lib/postgresql/17/bin
   if [[ -z "${TEST_DATABASE_URL:-}" ]]; then
-    unavailable "backend: pytest" "TEST_DATABASE_URL（Postgres 17）が未設定。無いと DB のテスト（ほぼ全部）が飛ばされるので、流さない"
-  elif [[ -z "$py" ]]; then
-    unavailable "backend: pytest" "$py_req が無い（backend/CLAUDE.md の「実行」の手順で venv を作る）"
+    unavailable "backend: go test" "TEST_DATABASE_URL（Postgres 17）が未設定。無いと DB のテスト（ほぼ全部）が飛ばされるので、流さない"
+  elif ! command -v go >/dev/null 2>&1; then
+    unavailable "backend: go test" "go が無い（backend/go.mod の版以上。backend/CLAUDE.md の「実行」を見る）"
   elif [[ ! -x "$pg_bin/pg_dump" || ! -x "$pg_bin/pg_restore" ]]; then
-    unavailable "backend: pytest" "$pg_bin に pg_dump / pg_restore が無い（test_migrate.py が使う。無いとそのテストが飛ばされる）"
-  elif ! "$py" -c 'import pytest, psycopg, PIL, moto' >/dev/null 2>&1; then
-    unavailable "backend: pytest" "backend の依存が venv に無い（pytest・psycopg・PIL・moto のどれか。pip install -r requirements.txt -r requirements-dev.in）"
+    unavailable "backend: go test" "$pg_bin に pg_dump / pg_restore が無い（TestBackupAndRestoreRoundtrip が使う。無いとそのテストが飛ばされる）"
   else
     case "$(db_host "$TEST_DATABASE_URL")" in
       localhost | 127.0.0.1 | ::1) local_db=1 ;;
@@ -179,14 +187,16 @@ if want backend; then
     esac
     case "$TEST_DATABASE_URL" in *,* | *host=* | *hostaddr=*) local_db=0 ;; esac # 接続先が変わりうる URL（複数ホスト・host= の上書き）
     if [[ "$local_db" -eq 0 && "${VERIFY_ALLOW_REMOTE_DB:-}" != 1 ]]; then
-      unavailable "backend: pytest" "TEST_DATABASE_URL の接続先が localhost と確かめられない。テストは同名の DB を DROP → CREATE する。テスト用のサーバーと確かめたら VERIFY_ALLOW_REMOTE_DB=1"
+      unavailable "backend: go test" "TEST_DATABASE_URL の接続先が localhost と確かめられない。テストは jobnavi_go_* の DB を DROP → CREATE する。テスト用のサーバーと確かめたら VERIFY_ALLOW_REMOTE_DB=1"
     else
-      py_have="$("$py" -c 'import sys;print("%d.%d" % sys.version_info[:2])' 2>/dev/null)"
-      py_want="$(tr -d '[:space:]' <.python-version)"
-      if [[ "$py_have" != "${py_want%.*}" && "$py_have" != "$py_want" ]]; then
-        note "backend: Python は ${py_have:-不明}。.python-version は ${py_want}。CI と同じ版ではない"
+      go_want="$(awk '/^go [0-9]/ {print $2; exit}' backend/go.mod)"
+      go_have="$(go env GOVERSION 2>/dev/null | sed 's/^go//')"
+      if [[ "$go_have" != "$go_want" ]]; then
+        note "backend: Go は ${go_have:-不明}。backend/go.mod は ${go_want}。CI と同じ版ではない"
       fi
-      run "backend: pytest（直列・スキップ 0 件）" backend_pytest
+      run "backend: gofmt" backend_gofmt
+      run "backend: go vet" bash -c 'cd backend && go vet -tags nodynamic ./...'
+      run "backend: go test（-race・スキップ 0 件）" backend_gotest
     fi
   fi
 fi
@@ -250,10 +260,12 @@ scripts_r2() {
 
 if want scripts; then
   run "scripts: inspect-image-gen.sh のテスト（偽の gcloud）" bash scripts/test-inspect-image-gen.sh
-  if [[ -n "$py" ]]; then
-    run "scripts: R2 一時キーの署名のテスト（スキップ 0 件）" scripts_r2
-  else
+  if [[ -z "$py" ]]; then
     unavailable "scripts: R2 一時キーの署名のテスト" "$py_req が無い"
+  elif ! "$py" -c 'import pytest' >/dev/null 2>&1; then
+    unavailable "scripts: R2 一時キーの署名のテスト" "$py_req に pytest が無い（PYTHON で、pytest のある Python を指す）"
+  else
+    run "scripts: R2 一時キーの署名のテスト（スキップ 0 件）" scripts_r2
   fi
 fi
 

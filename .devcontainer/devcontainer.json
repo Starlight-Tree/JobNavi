@@ -14,7 +14,8 @@
 	"initializeCommand": "docker compose -f .devcontainer/docker-proxy/compose.yml up -d",
 	"features": {
 		"ghcr.io/devcontainers/features/node:2": {},
-		"ghcr.io/devcontainers/features/python:1": { "version": "3.13" }
+		"ghcr.io/devcontainers/features/python:1": { "version": "3.13" },
+		"ghcr.io/devcontainers/features/go:1": { "version": "1.26" }
 	},
 	// DOCKER_HOST・CLOUDSDK_AUTH_IMPERSONATE_SERVICE_ACCOUNT・INFISICAL_DISABLE_* は ./docker-compose.yml の dev の environment にも置いてある
 	// （Compose ベースで containerEnv が効くかは未確認なので両方。変えるときは両方を直す）。
@@ -47,6 +48,7 @@
 		"vscode": {
 			"extensions": [
 				"anthropic.claude-code",
+				"golang.go",
 				"ms-python.python",
 				"ms-python.vscode-pylance",
 				"mhutchie.git-graph",
