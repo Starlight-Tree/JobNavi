@@ -1,4 +1,4 @@
-// バックエンド（backend/app/schemas.py）の応答の型
+// バックエンド（backend/recruits.go・auth.go・images_api.go の構造体）の応答の型
 export type Code = { code: number; name: string };
 export type OccupationGroup = { category: string; items: Code[] };
 export type Master = {

@@ -1,4 +1,4 @@
-// 入力の検査。最終の判断は API（backend/app/schemas.py）がする。ここは、送る前に分かる誤りを、画面で先に知らせるためのもの。
+// 入力の検査。最終の判断は API（backend/body.go）がする。ここは、送る前に分かる誤りを、画面で先に知らせるためのもの。
 
 export type Field = 'display_name' | 'email' | 'password';
 export type FieldErrors = Partial<Record<Field, string>>;
@@ -14,7 +14,7 @@ function email(value: string): string | undefined {
   return undefined;
 }
 
-/** 表示名の上限（文字数）。API（backend/app/schemas.py）と同じ。 */
+/** 表示名の上限（文字数）。API（backend/body.go）と同じ。 */
 export const DISPLAY_NAME_MAX = 30;
 
 function displayName(value: string): string | undefined {
