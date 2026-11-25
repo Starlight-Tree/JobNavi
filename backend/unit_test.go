@@ -305,6 +305,56 @@ func encodeWebP(t *testing.T, im image.Image) []byte {
 	return b.Bytes()
 }
 
+// WebP の復号は 0〜255 の範囲を保つ。webp.Decode の YUV（16〜235）を Go の標準の変換で読むと、黒が 16・白が 235 に縮む。
+func TestDecodeWebPKeepsRangeAndAlpha(t *testing.T) {
+	abs := func(x int) int {
+		if x < 0 {
+			return -x
+		}
+		return x
+	}
+	ramp := image.NewNRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			v := uint8(x * 255 / 63)
+			ramp.SetNRGBA(x, y, color.NRGBA{v, v, v, 255})
+		}
+	}
+	for _, o := range []webp.Options{{Quality: 100}, {Lossless: true}} {
+		var b bytes.Buffer
+		if err := webp.Encode(&b, ramp, o); err != nil {
+			t.Fatal(err)
+		}
+		got, err := decodeImage("WEBP", b.Bytes())
+		if err != nil {
+			t.Fatal(err)
+		}
+		black := color.NRGBAModel.Convert(got.At(0, 32)).(color.NRGBA)
+		white := color.NRGBAModel.Convert(got.At(63, 32)).(color.NRGBA)
+		if black.R > 4 || white.R < 251 {
+			t.Errorf("lossless=%v: 黒 %d・白 %d（0 付近・255 付近のはず）", o.Lossless, black.R, white.R)
+		}
+	}
+
+	// 半透明の色が保たれる（乗算済みの RGBA で返るので、NRGBA に直して比べる。8 ビットの丸めの分だけ許す）
+	half := image.NewNRGBA(image.Rect(0, 0, 32, 32))
+	for i := 0; i < len(half.Pix); i += 4 {
+		half.Pix[i], half.Pix[i+1], half.Pix[i+2], half.Pix[i+3] = 200, 100, 50, 128
+	}
+	var b bytes.Buffer
+	if err := webp.Encode(&b, half, webp.Options{Lossless: true}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := decodeImage("WEBP", b.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := color.NRGBAModel.Convert(got.At(16, 16)).(color.NRGBA)
+	if abs(int(c.R)-200) > 2 || abs(int(c.G)-100) > 2 || abs(int(c.B)-50) > 2 || abs(int(c.A)-128) > 1 {
+		t.Errorf("半透明の色が変わった: %v（200,100,50,128 のはず）", c)
+	}
+}
+
 func TestProcessImageAcceptsAndNormalizes(t *testing.T) {
 	cases := []struct {
 		name, mime, ext string

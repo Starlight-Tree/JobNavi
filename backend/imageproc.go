@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"image"
 	"image/draw"
@@ -269,7 +270,21 @@ func decodeImage(format string, raw []byte) (image.Image, error) {
 	case "PNG":
 		return png.Decode(bytes.NewReader(raw))
 	}
-	return webp.Decode(bytes.NewReader(raw))
+	// webp.Decode は静止画を YUV 4:2:0（WebP 本来の 16〜235 の範囲）の *image.NYCbCrA で返す。Go の標準の変換はフル範囲（0〜255）として読むので、
+	// そのまま使うと黒が 16・白が 235 に縮んで色が変わる（可逆の WebP も YUV になる）。DecodeAll は libwebp が RGBA にした結果を返すので、そちらを使う。
+	// 返る *image.RGBA の Pix は、乗算済みのアルファ（Go の RGBA と同じ）。
+	w, err := webp.DecodeAll(bytes.NewReader(raw))
+	if err != nil {
+		return nil, err
+	}
+	if len(w.Image) == 0 {
+		return nil, errors.New("webp: 画像が無い")
+	}
+	rgba, ok := w.Image[0].(*image.RGBA)
+	if !ok {
+		return nil, errors.New("webp: 想定外の画像の型")
+	}
+	return rgba, nil
 }
 
 // processImage は実データを検証し、メタデータを除いて再エンコードした配信用のバイト列を返す。
