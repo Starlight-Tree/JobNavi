@@ -51,12 +51,14 @@ JobNavi の API（FastAPI + psycopg3）を Go に置き換えた記録。Go は 
 - 道具: 空の DB から同じ手順（migrate → seed → seed --extend → seed-images → images → reconcile → search-index → seed --reset）を流し、出力・DB の状態・`pg_dump -s` が一致。
 - S3 の署名（SigV4）: botocore が同じ鍵・時刻・ヘッダーで作る署名と一致（5 ケース）。
 - 画面から: `e2e/run.sh`（Go の API・Playwright）が合格。
+- 画像の見た目（2026-11-26）: JPEG 3 枚・PNG 2 枚（透過つき 1 枚）・WebP 1 枚（EXIF の向き 6 の JPEG と、長辺 4000px の縮小を含む）を、同じ入力で Pillow と Go に通して比べ、並べた図を目で見た（ブラウザーの画面では見ていない）。JPEG は元との差が 45〜48 dB で見分けがつかず、PNG は差 0、向きは同じ。**WebP は色がずれていた**: ライブラリ（`gen2brain/webp` v0.6.4）の `Decode` が WebP 本来の YUV（16〜235）で返すのを、Go の標準の変換が 0〜255 として読み、黒が 16・白が 235 に縮んでいた（元との差 28.6 dB）。`DecodeAll`（libwebp が RGBA にした結果）に切り替えて直し、Pillow と同じ水準（42.4 dB・平均 RGB が一致）になった。回帰テストは `TestDecodeWebPKeepsRangeAndAlpha`。
+- 実 R2（2026-11-26）: 開発バケットの `jobnavi-go-verify/` に 1 件（242 KB）を、Go の `s3Storage` で put → 存在 → get（内容が一致）→ 一覧 → delete → 存在しない、の順に確かめ、全部成功した。置いたものは消して、残りは 0 件。公開 URL（`r2.dev`）からの配信は、Go の API が配らないので、ここでは確かめていない（Python の API で 2026-11-01 に確認済み。[image-storage.md](image-storage.md)）。
 
-差分テストの Python の応答は、`backend/testdata/golden_read.json`（読み取り系 217 件）と `unit_fixtures.json`（JSON の構文エラーの位置、Pillow の縮小の大きさ、埋め込みの浮動小数点、argon2 のハッシュ）に固定し、Go のテストが再生する。Go のテストは 43 件（テスト関数。`go test -list` で数えた）。
+差分テストの Python の応答は、`backend/testdata/golden_read.json`（読み取り系 217 件）と `unit_fixtures.json`（JSON の構文エラーの位置、Pillow の縮小の大きさ、埋め込みの浮動小数点、argon2 のハッシュ）に固定し、Go のテストが再生する。Go のテストは 44 件（テスト関数。2026-11-26 に `go test -list` で数えた）。
 
 ## 意図して違う点
 
-- **画像の再エンコード**: メタデータ（EXIF・ICC）を除き、向きを画素に反映し、長辺 2400px まで縮める点は同じ。ただし出力のバイト列は Pillow と同じにならない（JPEG は baseline・縮小は CatmullRom・不透明な PNG は RGB で保存。Pillow は progressive・Lanczos）。画像の見た目の比較は、ブラウザーで確かめていない。
+- **画像の再エンコード**: メタデータ（EXIF・ICC）を除き、向きを画素に反映し、長辺 2400px まで縮める点は同じ。ただし出力のバイト列は Pillow と同じにならない（JPEG は baseline・縮小は CatmullRom・不透明な PNG は RGB で保存。Pillow は progressive・Lanczos）。画像の見た目の比べ方は、「同じであることの確かめ方」の画像の項。
 - 存在しないファイルを `images register` に渡したとき、Python はトレースバックで落ち、Go は 1 行のメッセージを出す。
 - メールアドレスの 422 の文（園のログイン）は、email-validator の主な場合（`@` の有無・前後が空・空白や記号・ピリオド・ハイフン・長さ・括弧・引用符・特別な用途の名前・数字だけの TLD・`名前 <アドレス>`）だけ同じ。IDNA の変換（`xn--` の復元）はしない。
 - JWT の `exp`・`nbf`・`iat` が文字列などの数値以外のときは拒否する（PyJWT は数字の文字列を数値として読む。署名つきなので Better Auth は出さない）。
@@ -65,11 +67,9 @@ JobNavi の API（FastAPI + psycopg3）を Go に置き換えた記録。Go は 
 
 ## 未確認
 
-- **実 R2**（S3 互換の保存先）への書き込み・読み出し。署名は botocore と一致し、偽の S3 で動くことは確かめたが、本物には繋いでいない（R2 への書き込みは承認が要る）。
 - 速さ・メモリ（Python との比較）。測っていない。
-- 画像の見た目（再エンコードの品質）を、ブラウザーで目で見ること。
 - 本番（JobNavi に本番環境があるかは、リポジトリから確認できない。`docs/development.md` を参照）。
-- 開発コンテナへの Go の導入（`.devcontainer/devcontainer.json` に feature を足す提案。承認待ち）。
+- 画像の見た目を、ブラウザーの画面で（求人詳細・園の画面）見ること。再エンコードの出力は、上の比較（並べた図）で確かめた。
 
 ## 戻し方
 
